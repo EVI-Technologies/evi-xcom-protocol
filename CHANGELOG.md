@@ -1,0 +1,46 @@
+# Changelog
+
+## [2.0.0] — 2026-05-22
+
+### Added
+- `XCOM_CMD_CONNECTOR_EVENT` (0x09, CHARGING_CTRL) — async connector state changes from charger MCU to OCPP card; replaces periodic polling of `GET_CHARGING_STATUS`
+- `XCOM_CMD_HEARTBEAT` (0x0A, CHARGING_CTRL) — 30 s keepalive; OCPP card responds with UTC timestamp; missed heartbeats trigger offline mode
+- `XCOM_CMD_INFO_CHARGER_IDENTITY` (0x21, CHARGER_INFO) — boot-time capability frame sent by charger MCU; contains connector types, power ratings, auth methods, features, and `comm_modes`
+- `XCOM_CMD_OPS_OCPP_CARD_STATUS` (0x13, CHARGER_OP) — fire-and-forget state broadcast from OCPP card to charger MCU (BOOTING/ONLINE/OFFLINE/RESETTING + UTC)
+- `xcom_charger_identity_t` (50 bytes) — charger identity payload struct with `comm_modes` bitmask
+- `xcom_connector_event_t` (7 bytes) — connector event payload struct
+- `xcom_ocpp_status_t` (5 bytes) — OCPP card status payload struct
+- `xcom_heartbeat_response_t` (4 bytes) — heartbeat response payload struct
+- `XCOM_COMM_WIFI/ETH/GSM` bitmask constants for `comm_modes` field
+- `XCOM_AUTH_RFID/BUTTON/FREE` bitmask constants
+- `XCOM_FEAT_ACPILOT/SCHEDULE/DERATING` bitmask constants
+- `XCOM_CONNECTOR_*` and `XCOM_POWER_*` constants
+- Per-command timeout and retry constants (`XCOM_TIMEOUT_*`, `XCOM_RETRY_*`)
+- Heartbeat parameter constants (`XCOM_HEARTBEAT_INTERVAL_MS`, `XCOM_HEARTBEAT_MAX_MISS`)
+- Portable `xcom_crc.h/.c` — extracted from both firmware projects
+- Portable `xcom_frame.h/.c` — `xcom_pack_frame()`, `xcom_unpack_frame()`, `xcom_build_ack()`, `xcom_build_nack()`
+- `python/xcom_frame.py` — complete Python binding with `XcomFrame` class and payload helpers
+- `docs/protocol_spec.md` — canonical byte-level specification
+- `docs/message_flow.md` — 7 sequence diagrams
+
+### Changed
+- All command ID enumerators now have **explicit numeric values** (no auto-increment from 0). This prevents accidental ID shifts when new commands are inserted.
+- `XCOM_CMD_CONFIG_READ_IS17017_CUR_LIMIT` renamed to `XCOM_CMD_CONFIG_READ_ACPILOT_CUR_LIMIT` (accurate name; mirrors xcom_transport.h)
+- `XCOM_CMD_INFO_IS17017_PWM_STATUS` renamed to `XCOM_CMD_INFO_ACPILOT_PWM_STATUS`
+- `CHARGER_CONFIG` commands now include entries from both firmware projects (device_id, power_limit, rfid_enabled_flag, emergencystop_enabled_flag, gnddetect_enabled_flag)
+- `CHARGER_OP`: `ADD_RFID` is now at 0x12 (was 0x10 in charger MCU's xcom_transport.h); `DATA_TRANSFER` at 0x10, `DATA_TRANSFER_CONF` at 0x11 (from OCPP card's charger_uart.h)
+- `XCOM_TIMEOUT_RESPONSE_REQUIRED_MS` increased from 2000 ms to 5000 ms (generic fallback; per-command timeouts are now specified separately)
+- Shared buffer declarations moved behind `#ifndef XCOM_NO_SHARED_BUFFERS` guard
+
+### Migration from v1
+Both firmware projects must update their local headers to use `xcom_protocol.h` from this submodule:
+1. Replace `#include "charger_uart.h"` (OCPP card) or `#include "xcom_transport.h"` (charger MCU) with `#include "xcom_protocol.h"`
+2. Update CHARGER_OP handler on charger MCU: `ADD_RFID` is now at 0x12 (not 0x10)
+3. Update CHARGER_CONFIG handler on OCPP card: `ACPILOT_CUR_LIMIT` is now the canonical name
+4. Add handlers for new commands: `CONNECTOR_EVENT`, `HEARTBEAT`, `CHARGER_IDENTITY`, `OCPP_CARD_STATUS`
+
+## [1.0.0] — (original, pre-submodule)
+
+Original protocol as implemented independently in:
+- `ocpp-card-16j/charger-interface/inc/charger_uart.h`
+- `evi-new-ac-chargers/Application/External_Communication/inc/xcom_transport.h`
