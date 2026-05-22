@@ -349,6 +349,20 @@ typedef enum
 } xcom_charger_ops_cmd_t;
 
 /* =========================================================================
+ * OTA install result byte values
+ *
+ * Carried in the single-byte payload of
+ * XCOM_CMD_OPS_CHARGER_FIRMWARE_INSTALLED_STATUS.  The OCPP card treats any
+ * value other than CHARGER_OTA_RESULT_OK as a failure.
+ * Legacy charger firmware sends bool 0x01/0x00; 0x01 == OK is preserved.
+ * ========================================================================= */
+
+#define CHARGER_OTA_RESULT_OK              0x01U /**< CRC verified, firmware installed */
+#define CHARGER_OTA_RESULT_ERR_CRC         0x02U /**< CRC mismatch after flash write */
+#define CHARGER_OTA_RESULT_ERR_INCOMPLETE  0x03U /**< Power-loss detected at boot — flash may be blank */
+#define CHARGER_OTA_RESULT_ERR_WATCHDOG    0x04U /**< Watchdog reset during flash write */
+
+/* =========================================================================
  * XCOM_DEVICE_TYPE_METER command IDs
  * ========================================================================= */
 
