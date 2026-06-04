@@ -65,6 +65,7 @@ class XcomDeviceType(IntEnum):
     METER           = 0x04
     FILE_HANDLING   = 0x05
     OCPP_CONFIG_KEYS = 0x06
+    NET_PIPE        = 0x07  # v2.2.0
 
 
 class XcomChargingCtrlCmd(IntEnum):
@@ -139,6 +140,7 @@ class XcomChargerOpsCmd(IntEnum):
     DATA_TRANSFER_CONF              = 0x11
     ADD_RFID                        = 0x12
     OCPP_CARD_STATUS                = 0x13  # v2
+    LOG_CONTROL                     = 0x14  # v2.2.0
 
 
 class XcomMeterCmd(IntEnum):
@@ -288,6 +290,27 @@ CHARGER_OTA_RESULT_OK             = 0x01
 CHARGER_OTA_RESULT_ERR_CRC        = 0x02
 CHARGER_OTA_RESULT_ERR_INCOMPLETE = 0x03
 CHARGER_OTA_RESULT_ERR_WATCHDOG   = 0x04
+
+
+class XcomNetPipeCmd(IntEnum):
+    """NET_PIPE (0x07) command IDs — transparent PPP byte-pipe to the GSM modem (v2.2.0)."""
+    OPEN    = 0x00
+    DATA_TX = 0x01
+    DATA_RX = 0x02
+    CLOSE   = 0x03
+    STATUS  = 0x04
+
+
+class XcomNetPipeState(IntEnum):
+    DOWN    = 0x00
+    DIALING = 0x01
+    UP      = 0x02
+    ERROR   = 0x03
+
+
+# Log-control payload values for XcomChargerOpsCmd.LOG_CONTROL (CHARGER_OP 0x14)
+XCOM_LOG_OFF = 0x00
+XCOM_LOG_ON  = 0x01
 
 
 class XcomConnectorEventType(IntEnum):

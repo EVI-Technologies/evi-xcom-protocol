@@ -1,7 +1,7 @@
 # XCOM Binary Protocol Specification
 
-Version: **2** (`XCOM_PROTOCOL_VERSION = 2`)  
-Last updated: 2026-05-22
+Version: **2** (`XCOM_PROTOCOL_VERSION = 2`) · library **v2.2.0**  
+Last updated: 2026-06-04
 
 ---
 
@@ -14,8 +14,10 @@ XCOM is a compact binary serial protocol used between two EVI products:
 | OCPP card | ESP32 (ESP-IDF) | OCPP 1.6J gateway; manages CSMS connectivity |
 | Charger control card | APM32F103CBT6 | IEC 61851 charging state machine |
 
-**Physical link:** UART, 115 200 baud, 8N1, no flow control.  
-OCPP card UART2 ↔ Charger card USART1.
+**Physical link:** UART, 8N1, no flow control. Default 115 200 baud; may be raised to
+460 800–921 600 baud (short on-PCB wiring) for the SD-file and NET_PIPE (PPP) byte-pipe paths.  
+Connectivity-processor UART ↔ charger-card USART. (Connectivity processor: ESP8266 in current
+products; ESP32 in legacy OCPP-card builds.)
 
 ---
 
@@ -75,6 +77,7 @@ Both little-endian bytes of the CRC are appended LSB-first.
 | 0x04 | METER | Meter data retrieval |
 | 0x05 | FILE_HANDLING | SD-card file-system proxy |
 | 0x06 | OCPP_CONFIG_KEYS | OCPP 1.6 config key writes |
+| 0x07 | NET_PIPE | Transparent PPP/data byte-pipe to the GSM modem (v2.2.0); see §7.5 |
 
 ---
 
@@ -119,6 +122,7 @@ Both little-endian bytes of the CRC are appended LSB-first.
 | 0x11 | DATA_TRANSFER_CONF | OCPP→Charger |
 | 0x12 | ADD_RFID | Charger→OCPP |
 | **0x13** | **OCPP_CARD_STATUS** | **OCPP→Charger (fire-and-forget, v2)** |
+| **0x14** | **LOG_CONTROL** | **Enable/disable on-request debug log (v2.2.0); see §7.6** |
 
 ---
 
@@ -180,6 +184,33 @@ Offset  Size  Field          Description
   0      4    utc_timestamp  Current UTC Unix epoch, uint32_t LE
 ```
 
+### 7.5 NET_PIPE — transparent GSM byte-pipe (device_type = 0x07, v2.2.0)
+
+Lets the connectivity processor (ESP8266) run **PPP + lwIP + TLS** over the GSM modem that is
+physically wired to the charger MCU. The charger MCU runs **no IP stack**: on `OPEN` it dials the
+modem into PPP data mode (APN from `CHARGER_CONFIG`), then relays raw bytes both ways. The ESP8266
+terminates TLS, so the charger MCU only ever sees ciphertext.
+
+| ID | Name | Direction | ACK? | Description |
+|----|------|-----------|------|-------------|
+| 0x00 | OPEN | ESP→Charger | yes | Dial the modem into PPP data mode |
+| 0x01 | DATA_TX | ESP→Charger | no | Raw bytes to write to the modem (PPP frames) |
+| 0x02 | DATA_RX | Charger→ESP | no | Raw bytes read from the modem (async push) |
+| 0x03 | CLOSE | ESP→Charger | yes | Hang up the data session |
+| 0x04 | STATUS | both | yes | Query/report link status (`xcom_net_pipe_status_t`) |
+
+`DATA_TX`/`DATA_RX` are **fire-and-forget** (no per-frame ACK); PPP/TCP provide reliability. Run the
+link at the raised baud (460 800–921 600) for throughput. `xcom_net_pipe_status_t = { state(1),
+rssi(1), registered(1) }`, with `state ∈ {0=DOWN, 1=DIALING, 2=UP, 3=ERROR}`.
+
+### 7.6 LOG_CONTROL and the ASCII log trigger (v2.2.0)
+
+On-request diagnostic logging is **off by default and never persisted** (off after every reboot).
+Two ways to toggle it:
+- **Structured:** `CHARGER_OP` / `LOG_CONTROL` (0x14), 1-byte payload — `0x00`=off, `0x01`=on (ACKed).
+- **Plain ASCII** (for a human on a serial terminal, no XCOM framing) on the GSM/WiFi/debug UART:
+  `EVILOG 1` enables, `EVILOG 0` disables (CR/LF terminated); detected outside XCOM frame sync.
+
 ---
 
 ## 8. Retry and Timeout Policy
@@ -197,6 +228,9 @@ Offset  Size  Field          Description
 | OCPP_CARD_STATUS | O→C | 0 | — | fire-and-forget |
 | File ops | C→O | 1 | 5 000 | 5 000 |
 | Config R/W | O→C | 2 | 500 | 1 500 |
+| NET_PIPE OPEN/CLOSE | ESP→C | 2 | 2 000 | 4 000 |
+| NET_PIPE DATA_TX/RX | both | 0 | — | fire-and-forget |
+| LOG_CONTROL | O→C | 2 | 500 | 1 000 |
 
 ---
 
@@ -244,3 +278,5 @@ Example: GSM + WiFi only unit → `comm_modes = 0x05` (XCOM_COMM_WIFI | XCOM_COM
 |---------|-------|
 | 1 | Original protocol (ESP8266 co-processor era) |
 | 2 | Added: CONNECTOR_EVENT (0x09), HEARTBEAT (0x0A) in CHARGING_CTRL; CHARGER_IDENTITY (0x21) in CHARGER_INFO; OCPP_CARD_STATUS (0x13) in CHARGER_OP; CHARGER_CONFIG commands aligned between both MCUs; explicit numeric values for all enumerators (no auto-increment) |
+| 2 (lib v2.1.0) | Completed Python binding; OTA install-result constants |
+| 2 (lib v2.2.0) | NET_PIPE (0x07) transparent PPP byte-pipe; LOG_CONTROL (0x14) + ASCII `EVILOG` trigger; documented raised baud |

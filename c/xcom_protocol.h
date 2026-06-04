@@ -3,7 +3,8 @@
  * @brief   XCOM binary serial protocol — single source of truth.
  * @details XCOM is the proprietary binary framing protocol used between the
  *          EVI OCPP card (ESP32) and the EVI charger control card (APM32F103)
- *          over a 115200-baud UART link.
+ *          over a UART link (default 115200 baud; may be raised to 460800-921600
+ *          for the SD-file and NET_PIPE byte-pipe paths).
  *
  *          Protocol version: 2  (XCOM_PROTOCOL_VERSION)
  *          CRC algorithm   : CRC-16/CCITT-FALSE (XMODEM, poly 0x1021, init 0x0000)
@@ -152,7 +153,8 @@ typedef enum
     XCOM_DEVICE_TYPE_CHARGER_OP     = 0x03, /**< Operational commands (OTA, reset, time) */
     XCOM_DEVICE_TYPE_METER          = 0x04, /**< Meter data */
     XCOM_FILE_HANDLING              = 0x05, /**< File-system proxy */
-    XCOM_DEVICE_TYPE_OCPP_CONFIG_KEYS = 0x06 /**< OCPP 1.6 config key writes */
+    XCOM_DEVICE_TYPE_OCPP_CONFIG_KEYS = 0x06, /**< OCPP 1.6 config key writes */
+    XCOM_DEVICE_TYPE_NET_PIPE       = 0x07  /**< Transparent PPP byte-pipe to the GSM modem (v2.2.0) */
 } xcom_device_type_t;
 
 /* =========================================================================
@@ -345,6 +347,9 @@ typedef enum
     /* v2 addition */
     XCOM_CMD_OPS_OCPP_CARD_STATUS                = 0x13, /**< OCPP→Charger: broadcast OCPP state + UTC */
 
+    /* v2.2.0 addition */
+    XCOM_CMD_OPS_LOG_CONTROL                     = 0x14, /**< Enable/disable on-request debug log (1-byte payload: 0=off, 1=on); never persisted */
+
     XCOM_CMD_OPS_MAX /**< Sentinel */
 } xcom_charger_ops_cmd_t;
 
@@ -455,6 +460,49 @@ typedef enum
 
     XCOM_CMD_OCPP_KEY_MAX /**< Sentinel */
 } xcom_ocpp_config_keys_cmd_t;
+
+/* =========================================================================
+ * XCOM_DEVICE_TYPE_NET_PIPE command IDs (v2.2.0)
+ *
+ * Transparent byte-pipe so the connectivity processor (ESP8266) can run PPP +
+ * lwIP + TLS over the GSM modem that is physically wired to the charger MCU.
+ * The charger MCU runs NO IP stack: on OPEN it dials the modem into PPP data
+ * mode (APN taken from CHARGER_CONFIG), then relays raw bytes both ways. DATA
+ * frames are fire-and-forget (unacknowledged) — PPP/TCP provide reliability;
+ * OPEN/CLOSE/STATUS are ACKed. Use the raised baud (460800-921600) for throughput.
+ * ========================================================================= */
+
+typedef enum
+{
+    XCOM_CMD_NET_PIPE_OPEN    = 0x00, /**< ESP→Charger: dial modem into PPP data mode (ACKed) */
+    XCOM_CMD_NET_PIPE_DATA_TX = 0x01, /**< ESP→Charger: raw bytes to write to the modem (no ACK) */
+    XCOM_CMD_NET_PIPE_DATA_RX = 0x02, /**< Charger→ESP: raw bytes read from the modem (async, no ACK) */
+    XCOM_CMD_NET_PIPE_CLOSE   = 0x03, /**< ESP→Charger: hang up the data session (ACKed) */
+    XCOM_CMD_NET_PIPE_STATUS  = 0x04, /**< Query/report modem + PPP link status (xcom_net_pipe_status_t) */
+
+    XCOM_CMD_NET_PIPE_MAX /**< Sentinel */
+} xcom_net_pipe_cmd_t;
+
+/** @brief NET_PIPE link state (xcom_net_pipe_status_t.state). */
+typedef enum
+{
+    XCOM_NET_PIPE_DOWN    = 0x00, /**< Modem idle / no data session */
+    XCOM_NET_PIPE_DIALING = 0x01, /**< Establishing PPP */
+    XCOM_NET_PIPE_UP      = 0x02, /**< PPP up; relaying */
+    XCOM_NET_PIPE_ERROR   = 0x03  /**< Modem / registration error */
+} xcom_net_pipe_state_t;
+
+/** @brief Payload for XCOM_CMD_NET_PIPE_STATUS (3 bytes). */
+typedef struct __attribute__((packed))
+{
+    uint8_t state;      /**< xcom_net_pipe_state_t */
+    uint8_t rssi;       /**< Modem signal 0..31 (99 = unknown) */
+    uint8_t registered; /**< 1 = registered to the cellular network */
+} xcom_net_pipe_status_t;
+
+/* Log-control payload values for XCOM_CMD_OPS_LOG_CONTROL (CHARGER_OP 0x14). */
+#define XCOM_LOG_OFF  0x00U
+#define XCOM_LOG_ON   0x01U
 
 /* =========================================================================
  * Connector hardware type codes

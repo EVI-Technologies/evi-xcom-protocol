@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.2.0] — 2026-06-04
+
+### Added
+- **`NET_PIPE` device type (0x07)** — transparent PPP/data byte-pipe so the connectivity processor
+  (ESP8266) runs PPP + lwIP + TLS over the GSM modem wired to the charger MCU; the charger MCU runs
+  no IP stack and relays raw bytes only. Commands: `OPEN`, `DATA_TX`, `DATA_RX` (async, fire-and-forget),
+  `CLOSE`, `STATUS`; `xcom_net_pipe_status_t` + `xcom_net_pipe_state_t`.
+- **`XCOM_CMD_OPS_LOG_CONTROL` (CHARGER_OP 0x14)** — enable/disable on-request debug logging (1-byte
+  payload, never persisted), plus a documented plain-ASCII `EVILOG 1/0` UART trigger.
+- Python binding: `XcomNetPipeCmd`, `XcomNetPipeState`, `LOG_CONTROL`, `NET_PIPE` device type,
+  `XCOM_LOG_OFF/ON`.
+- Documented the raised baud (460800–921600) for the SD-file and byte-pipe paths.
+
+### Notes
+- Backward-compatible, additive only; `XCOM_PROTOCOL_VERSION` stays 2. `NET_PIPE` DATA frames are
+  unacknowledged (PPP/TCP handle reliability).
+
 ## [2.1.0] — 2026-06-04
 
 ### Added
