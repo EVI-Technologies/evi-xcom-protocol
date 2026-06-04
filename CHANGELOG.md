@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.1.0] — 2026-06-04
+
+### Added
+- OTA install result byte constants (`CHARGER_OTA_RESULT_OK/ERR_CRC/ERR_INCOMPLETE/ERR_WATCHDOG`) for the single-byte payload of `XCOM_CMD_OPS_CHARGER_FIRMWARE_INSTALLED_STATUS`.
+- Python binding (`python/xcom_frame.py`) completed to fully mirror `xcom_protocol.h`:
+  - `XcomChargerConfigCmd` (CHARGER_CONFIG, 0x00–0x35) — AC limits, CP current, temperature limits, auth flag, active interface, WebSocket URL, WiFi/GSM/Eth credentials, device ID, power limit, RFID/E-stop/ground-detect flags.
+  - `XcomOcppConfigKeysCmd` (OCPP_CONFIG_KEYS, 0x00–0x2E) — all OCPP 1.6 config-key writes.
+  - `XcomFileCmd` (FILE_HANDLING, 0x00–0x0C) — SD file-proxy operations.
+  - `XcomStatus` (`xcom_status_t` return codes) and `CHARGER_OTA_RESULT_*` constants.
+  - `XCOM_BUFFER_SIZE`, `XCOM_MAX_DATA_SIZE`, `XCOM_TIMEOUT_CONFIG_MS` constants.
+
+### Notes
+- Backward-compatible, additive only: no wire-format or command-ID changes; `XCOM_PROTOCOL_VERSION` stays 2.
+- Consumed by the unified charger monorepo's production-configuration tooling.
+
 ## [2.0.0] — 2026-05-22
 
 ### Added
