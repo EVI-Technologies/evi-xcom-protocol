@@ -211,6 +211,60 @@ Two ways to toggle it:
 - **Plain ASCII** (for a human on a serial terminal, no XCOM framing) on the GSM/WiFi/debug UART:
   `EVILOG 1` enables, `EVILOG 0` disables (CR/LF terminated); detected outside XCOM frame sync.
 
+### 7.7 FILE_HANDLING — SD-card file-system proxy (device_type = 0x05)
+
+The SD card is physically on the **charger MCU (APM32)**. The connectivity processor (**ESP8266**)
+has no SD; it reaches the card by driving these commands as the **client**, with the charger MCU acting
+as the **server** over its FatFs (ChaN **FatFs R0.14**) mount. Used for OTA image staging and bulk-log
+streaming. (Direction is reversed from the legacy OCPP-on-APM32 design, where the APM32 was the client.)
+
+**Direction:** all commands are **ESP→Charger**, each **ACKed**.
+**Open-file model:** one open file handle on the server at a time (single `FIL`), mirroring the OCPP
+`OCPP_SD_*` single-handle model — `OPEN` … `READ`/`WRITE`/`SEEK` … `CLOSE`.
+**ACK framing:** the response payload byte `[0]` is `ACK (0xA5)` / `NACK (0x5A)`; the command's **return
+data follows from offset 1**. (A client built on `CHARGER_SendCommand` strips byte `[0]`, so its
+`rx_buffer` begins at the return data described below.) On `NACK` no return data follows.
+
+**OPEN mode byte** = FatFs `FA_*` flags (R0.14), which are byte-identical to the OCPP `OCPP_SD_MODE_*`
+values, so the byte is passed straight through to `f_open()`:
+
+| Mode | Value | Meaning |
+|------|-------|---------|
+| `FA_READ` | 0x01 | open for reading |
+| `FA_WRITE` | 0x02 | open for writing |
+| `FA_OPEN_EXISTING` | 0x00 | fail if missing |
+| `FA_CREATE_NEW` | 0x04 | create, fail if exists |
+| `FA_CREATE_ALWAYS` | 0x08 | create/truncate |
+| `FA_OPEN_ALWAYS` | 0x10 | open or create |
+| `FA_OPEN_APPEND` | 0x30 | open and seek to end |
+
+**Command table** (`xcom_file_cmd_t`). All multi-byte integers are little-endian.
+
+| ID | Name | Request payload | Return data (after ACK byte) |
+|----|------|-----------------|------------------------------|
+| 0x00 | MOUNT  | none | `u8` mounted (1/0) |
+| 0x01 | OPEN   | `path` + `','` + `mode` (1 raw `FA_*` byte) | `u8` ok (1/0) |
+| 0x02 | CLOSE  | none | none |
+| 0x03 | LSEEK  | `u32` offset | none |
+| 0x04 | PUTS   | NUL-terminated string | none |
+| 0x05 | PUTC   | 1 byte | none |
+| 0x06 | GETS   | `u16` max length | NUL-terminated line string |
+| 0x07 | WRITE  | raw bytes (= frame `dlc`) | `u16` bytes_written |
+| 0x08 | UNLINK | `path` string | none |
+| 0x09 | EOF    | none | `u8` eof (1/0) |
+| 0x0A | TELL   | none | `u32` position |
+| 0x0B | SIZE   | none | `u32` size |
+| 0x0C | READ   | `u16` length | `u16` bytes_read, then that many raw bytes |
+
+Notes:
+- `OPEN` payload is `"<path>,<modebyte>"` — the comma separates the ASCII path from a single raw mode
+  byte (NOT an ASCII digit). Paths use the SD 8.3 names (e.g. `FIRMWARE.BIN`, `DIAG.CSV`).
+- Chunk `WRITE`/`READ` lengths to keep each XCOM frame within `XCOM_MAX_DATA_SIZE`; a ≤1024-byte chunk
+  is a safe default for OTA image streaming.
+- File ops are single-attempt with a 5 s budget (§8) — they are not latency-critical but the SD write
+  can stall; the client should not retry a partially-applied `WRITE` blindly (use `TELL`/`SIZE` to
+  resync).
+
 ---
 
 ## 8. Retry and Timeout Policy
@@ -226,7 +280,7 @@ Two ways to toggle it:
 | SET_CHARGING_LIMIT | O→C | 2 | 100 | **200** (latency-critical) |
 | CHARGER_IDENTITY | C→O | 3 | 2 000 | 6 000 |
 | OCPP_CARD_STATUS | O→C | 0 | — | fire-and-forget |
-| File ops | C→O | 1 | 5 000 | 5 000 |
+| File ops (FILE_HANDLING) | ESP→C | 1 | 5 000 | 5 000 |
 | Config R/W | O→C | 2 | 500 | 1 500 |
 | NET_PIPE OPEN/CLOSE | ESP→C | 2 | 2 000 | 4 000 |
 | NET_PIPE DATA_TX/RX | both | 0 | — | fire-and-forget |

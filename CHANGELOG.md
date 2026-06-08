@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.2.1] — 2026-06-08
+
+### Added
+- **Documented the `FILE_HANDLING` (0x05) per-command payload contract** (spec §7.7): direction
+  (ESP8266 = client, APM32 = server hosting the SD via FatFs R0.14), the single-open-file model, the
+  ACK-byte framing, the `OPEN` `"path,<mode>"` format with the `FA_*`/`OCPP_SD_MODE_*` mode byte, and
+  the request/return payload for every `xcom_file_cmd_t` (MOUNT/OPEN/CLOSE/LSEEK/PUTS/PUTC/GETS/WRITE/
+  UNLINK/EOF/TELL/SIZE/READ). Corrected the stale `File ops` direction in the retry table (ESP→C).
+
+### Notes
+- Documentation only — no wire or symbol changes (the command IDs already existed since the device type
+  was introduced). `XCOM_PROTOCOL_VERSION` stays 2. Pins the contract so the ESP8266 FILE_HANDLING
+  client and the APM32 server can be implemented against one authoritative reference.
+
 ## [2.2.0] — 2026-06-04
 
 ### Added
