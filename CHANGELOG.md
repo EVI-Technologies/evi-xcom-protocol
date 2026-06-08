@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.3.0] — 2026-06-08
+
+### Changed
+- **`XCOM_BUFFER_SIZE` reduced 5000 → 1280** (`XCOM_MAX_DATA_SIZE` 4987 → 1267). The ESP8266 connectivity
+  processor statically allocates three of these buffers (frame + tx + rx ≈ 3×5 KB) and its DRAM is tight;
+  the full OCPP stack linked pushed static RAM to 87%. The largest real payload is the 50-byte
+  `CHARGER_IDENTITY`, so the only impact is **FILE_HANDLING**, which must now chunk its `WRITE`/`READ`
+  payloads to **≤1024 B** (spec §7.7). Wire format and `XCOM_PROTOCOL_VERSION` (2) are unchanged.
+- Updated the Python binding (`XCOM_BUFFER_SIZE`) and spec §7.7 to match.
+
+### Migration
+- **Both MCUs must be rebuilt against this value.** A field unit running the old size still interoperates
+  as long as neither side sends a frame >1280 B (true for all commands except bulk FILE_HANDLING, whose
+  server on the APM32 is built fresh against this header). The APM32 FILE_HANDLING server must honour the
+  ≤1024 B chunk rule.
+
 ## [2.2.1] — 2026-06-08
 
 ### Added

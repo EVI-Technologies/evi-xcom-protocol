@@ -53,7 +53,12 @@
  * ========================================================================= */
 
 #define XCOM_DEVICE_ID          0x01020304UL /**< Default 32-bit device identifier */
-#define XCOM_BUFFER_SIZE        5000U        /**< Total frame buffer capacity (bytes) */
+/* Total frame buffer capacity (bytes). Sized down 5000 -> 1280 in v2.3.0: the
+ * ESP8266 statically allocates THREE of these (frame + tx + rx ~ 3x5 KB) and its
+ * DRAM is tight. The largest real payload is the 50-byte CHARGER_IDENTITY;
+ * FILE_HANDLING is the only bulk path and MUST chunk WRITE/READ to <=1024 B (fits
+ * the 1267-byte data area). Both MCUs must be rebuilt against this value. */
+#define XCOM_BUFFER_SIZE        1280U        /**< Total frame buffer capacity (bytes) */
 #define XCOM_FRAME_META_SIZE    13U          /**< Fixed overhead bytes per frame */
 #define XCOM_MAX_DATA_SIZE      (XCOM_BUFFER_SIZE - XCOM_FRAME_META_SIZE)
 #define XCOM_MAX_FRAME_SIZE     (XCOM_FRAME_META_SIZE + XCOM_MAX_DATA_SIZE)

@@ -259,8 +259,10 @@ values, so the byte is passed straight through to `f_open()`:
 Notes:
 - `OPEN` payload is `"<path>,<modebyte>"` — the comma separates the ASCII path from a single raw mode
   byte (NOT an ASCII digit). Paths use the SD 8.3 names (e.g. `FIRMWARE.BIN`, `DIAG.CSV`).
-- Chunk `WRITE`/`READ` lengths to keep each XCOM frame within `XCOM_MAX_DATA_SIZE`; a ≤1024-byte chunk
-  is a safe default for OTA image streaming.
+- Chunk `WRITE`/`READ` lengths to keep each XCOM frame within `XCOM_MAX_DATA_SIZE` (1267 B since v2.3.0,
+  when `XCOM_BUFFER_SIZE` was reduced 5000→1280 to fit the ESP8266's DRAM). **FILE_HANDLING WRITE/READ
+  chunks MUST be ≤1024 B** — this is the only command that approaches the buffer limit; every other
+  payload is tiny (≤50 B). Both MCUs must be built against the same `XCOM_BUFFER_SIZE`.
 - File ops are single-attempt with a 5 s budget (§8) — they are not latency-critical but the SD write
   can stall; the client should not retry a partially-applied `WRITE` blindly (use `TELL`/`SIZE` to
   resync).

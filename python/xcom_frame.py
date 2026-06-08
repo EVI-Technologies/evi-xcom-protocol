@@ -34,7 +34,7 @@ XCOM_ACK         = 0xA5
 XCOM_NACK        = 0x5A
 XCOM_DEVICE_ID   = 0x01020304
 XCOM_FRAME_META  = 13     # fixed overhead bytes
-XCOM_BUFFER_SIZE = 5000   # total frame buffer capacity (bytes)
+XCOM_BUFFER_SIZE = 1280   # total frame buffer capacity (bytes); 5000->1280 in v2.3.0 (ESP8266 DRAM; FILE_HANDLING chunks <=1024)
 XCOM_MAX_DATA_SIZE = XCOM_BUFFER_SIZE - XCOM_FRAME_META
 
 # Timeout constants (ms)
