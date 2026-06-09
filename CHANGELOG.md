@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.4.0] — 2026-06-09
+
+### Added
+- **`XCOM_CMD_CONFIG_READ_QR_BASE_URL` (0x36) / `WRITE_QR_BASE_URL` (0x37)** in the
+  `XCOM_DEVICE_TYPE_CHARGER_CONFIG` command set — the QR deep-link base the APM32 shows on the DWIN
+  (`"<base>/<CHID>"`, default `https://evi-grid.com/c`), so it is field-configurable from the ESP8266
+  web portal / OCPP. Backward-compatible (new command IDs only); wire format and `XCOM_PROTOCOL_VERSION`
+  (2) unchanged. Added to the C header (both MCU copies) and the Python binding (`XcomChargerConfigCmd`).
+
 ## [2.3.0] — 2026-06-08
 
 ### Changed

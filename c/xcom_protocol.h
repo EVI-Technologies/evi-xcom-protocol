@@ -274,6 +274,9 @@ typedef enum
     XCOM_CMD_CONFIG_READ_GNDDETECT_ENABLED_FLAG  = 0x34,
     XCOM_CMD_CONFIG_WRITE_GNDDETECT_ENABLED_FLAG = 0x35,
 
+    XCOM_CMD_CONFIG_READ_QR_BASE_URL  = 0x36, /**< QR deep-link base ("<base>/<CHID>" shown on the DWIN) */
+    XCOM_CMD_CONFIG_WRITE_QR_BASE_URL = 0x37,
+
     XCOM_CMD_CHARGER_CONFIGURATION_MAX /**< Sentinel */
 } xcom_charger_config_cmd_t;
 
