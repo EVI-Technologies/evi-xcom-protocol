@@ -1,5 +1,47 @@
 # Changelog
 
+## [2.5.0] — 2026-06-10
+
+### Added
+- **`TEST_MODE` device type (0x08)** — PC-driven production/bench test mode over XCOM on the fixed
+  production UART (GitHub issue #1). The PC Python tool is the client; the APM32 control card is the
+  server. Every command is request/response and ACKed (response byte `[0]` = ACK/NACK, return data from
+  offset 1, mirroring FILE_HANDLING §7.7). Commands (`xcom_test_mode_cmd_t`):
+  - **Lifecycle:** `ENTER` (0x00, 4-byte magic `XCOM_TEST_MODE_MAGIC = 0x54534554` "TEST"; refused while
+    charging), `EXIT` (0x01), `GET_STATUS` (0x02 → `xcom_test_status_t`), `GET_CAPABILITIES`
+    (0x03 → `xcom_test_caps_t`, 32 B: model, connectors, connector types, NTC count, `XCOM_TPER_*`
+    peripheral bitmap — lets the tool render a per-variant menu with zero per-variant code; mirrors
+    CHARGER_INFO CHARGEPOINT_MODEL/CONNECTOR_TYPE/NO_OF_CONNECTORS).
+  - **Actuators:** `SET_RGB` (0x10), `SET_BUZZER` (0x11), `SET_RELAY` (0x12).
+  - **Reads:** `READ_CP` (0x20), `READ_PWM` (0x21), `READ_NTC` (0x22), `READ_METER` (0x23),
+    `READ_DIGITAL_IN` (0x24, `XCOM_TDIN_*` bitmap), `GET_ESP_LINK` (0x25).
+  - **RFID:** `RFID_POLL` (0x30). **EEPROM:** `EEPROM_READ` (0x40), `EEPROM_WRITE` (0x41), ≤64 B/op.
+  - **Self-test:** `SELFTEST_RUN` (0x50) — thin firmware trigger returning overall + per-peripheral
+    result aligned to the `XCOM_TPER_*` bits (tool-side orchestration via individual commands also
+    supported).
+- New C structs/enums: `xcom_test_caps_t`, `xcom_test_rgb_t`, `xcom_test_buzzer_t`, `xcom_test_relay_t`,
+  `xcom_test_cp_t`, `xcom_test_pwm_t`, `xcom_test_ntc_t`, `xcom_test_meter_t`, `xcom_test_dinputs_t`,
+  `xcom_test_esp_link_t`, `xcom_test_rfid_t`, `xcom_test_status_t`, `xcom_test_selftest_t`,
+  `xcom_test_eeprom_rd_req_t`/`_wr_req_t`; `xcom_test_cp_state_t`, `xcom_test_buzzer_pattern_t`,
+  `xcom_test_result_t`; `XCOM_TPER_*` (peripheral) and `XCOM_TDIN_*` (digital-input) bitmask macros;
+  `XCOM_TEST_MODE_MAGIC`, `XCOM_TEST_RFID_UID_MAX`, `XCOM_TEST_EEPROM_MAX_LEN`,
+  `XCOM_TEST_SELFTEST_PERIPH_COUNT`.
+- Python binding: `XcomTestModeCmd`, `XcomTestCpState`, `XcomTestBuzzerPattern`, `XcomTestResult`,
+  the `XCOM_TPER_*`/`XCOM_TDIN_*` constants + `XCOM_TPER_LABELS`, and pack/unpack helpers for every
+  command (`pack_test_enter`, `unpack_test_capabilities`, `pack_test_rgb`/`_buzzer`/`_relay`,
+  `unpack_test_cp`/`_pwm`/`_ntc`/`_meter`/`_digital_inputs`/`_esp_link`/`_rfid`,
+  `pack_test_eeprom_read`/`_write`, `unpack_test_selftest`).
+- Spec §7.8 documents the device type, every command, exact byte layouts, and the privileged-entry rules.
+
+### Notes
+- Backward-compatible, additive only (new device type + command IDs; no wire-format change).
+  `XCOM_PROTOCOL_VERSION` stays **2**. Added to the C header (both MCU copies, byte-identical),
+  the Python binding, and the spec.
+- **Control-card side TODO:** implement the `TEST_MODE` server (dispatch case for device_type 0x08,
+  magic check, refuse-while-charging guard, capability population from the model registry, and the
+  actuator/read/RFID/EEPROM/self-test handlers) and rebuild against this header. **Tools side TODO:**
+  build the PC test tool against `xcom_frame.py` (no protocol changes needed here).
+
 ## [2.4.0] — 2026-06-09
 
 ### Added

@@ -1,7 +1,7 @@
 # XCOM Binary Protocol Specification
 
-Version: **2** (`XCOM_PROTOCOL_VERSION = 2`) · library **v2.2.0**  
-Last updated: 2026-06-04
+Version: **2** (`XCOM_PROTOCOL_VERSION = 2`) · library **v2.5.0**  
+Last updated: 2026-06-10
 
 ---
 
@@ -78,6 +78,7 @@ Both little-endian bytes of the CRC are appended LSB-first.
 | 0x05 | FILE_HANDLING | SD-card file-system proxy |
 | 0x06 | OCPP_CONFIG_KEYS | OCPP 1.6 config key writes |
 | 0x07 | NET_PIPE | Transparent PPP/data byte-pipe to the GSM modem (v2.2.0); see §7.5 |
+| 0x08 | TEST_MODE | PC production/bench test mode (v2.5.0); see §7.8 |
 
 ---
 
@@ -267,6 +268,103 @@ Notes:
   can stall; the client should not retry a partially-applied `WRITE` blindly (use `TELL`/`SIZE` to
   resync).
 
+### 7.8 TEST_MODE — PC production/bench test mode (device_type = 0x08, v2.5.0)
+
+A PC Python tool drives the charger control card (APM32) over XCOM on the **fixed production UART**
+to exercise every peripheral during manufacturing and bench bring-up. The **PC is always the client**;
+the **APM32 is the server**. Every command is request/response and **ACKed**: the response payload
+byte `[0]` is `ACK (0xA5)` / `NACK (0x5A)`, and any **return data follows from offset 1** (same framing
+convention as FILE_HANDLING §7.7). On `NACK` no return data follows. All payloads are tiny — no chunking.
+
+**Privileged state.** Test mode bypasses the normal charging state machine so the PC can actuate
+outputs and read raw sensors directly. It must not be enterable by accident:
+- `ENTER` carries a **4-byte LE magic** `XCOM_TEST_MODE_MAGIC = 0x54534554` (ASCII `"TEST"`). A wrong
+  magic → `NACK`.
+- The charger **must refuse** `ENTER` (→ `NACK`) while a charging session is active.
+- All actuator / read / RFID / EEPROM / self-test commands are `NACK`ed unless test mode is active.
+- `GET_STATUS` and `GET_CAPABILITIES` are answerable in **any** state.
+- `EXIT` (or a reboot) returns to normal operation. Test mode is **never persisted**.
+
+**Command table** (`xcom_test_mode_cmd_t`). All multi-byte integers are little-endian. "conn (frame)"
+means the connector index is carried in the **frame `connector_id` field**, not the payload.
+
+| ID | Name | Request payload | Return data (after ACK byte) |
+|----|------|-----------------|------------------------------|
+| 0x00 | ENTER | `u32` magic = `0x54534554` | none (ACK only) |
+| 0x01 | EXIT | none | none (ACK only) |
+| 0x02 | GET_STATUS | none | `xcom_test_status_t` = `u8 active` |
+| 0x03 | GET_CAPABILITIES | none | `xcom_test_caps_t` (32 B; see below) |
+| 0x10 | SET_RGB | `xcom_test_rgb_t` = `u8 connector, u8 r, u8 g, u8 b` | none (ACK only) |
+| 0x11 | SET_BUZZER | `xcom_test_buzzer_t` = `u8 pattern, u16 duration_ms` | none (ACK only) |
+| 0x12 | SET_RELAY | `xcom_test_relay_t` = `u8 connector, u8 on` | none (ACK only) |
+| 0x20 | READ_CP | conn (frame) | `xcom_test_cp_t` = `i16 mv, u8 pilot_state, u8 rsv` |
+| 0x21 | READ_PWM | conn (frame) | `xcom_test_pwm_t` = `u16 duty_permille` (0..1000) |
+| 0x22 | READ_NTC | `u8 sensor_idx` | `xcom_test_ntc_t` = `u8 sensor_idx, i16 temp_c_x10` |
+| 0x23 | READ_METER | `u8 phase` | `xcom_test_meter_t` = `u8 phase, u32 voltage_mv, u32 current_ma, u32 active_energy_wh, u8 rsv` (14 B) |
+| 0x24 | READ_DIGITAL_IN | none | `xcom_test_dinputs_t` = `u32 inputs` bitmap |
+| 0x25 | GET_ESP_LINK | none | `xcom_test_esp_link_t` = `u8 present, u8 alive` |
+| 0x30 | RFID_POLL | none | `xcom_test_rfid_t` = `u8 uid_len, u8 uid[10]` (uid_len=0 ⇒ no card) |
+| 0x40 | EEPROM_READ | `xcom_test_eeprom_rd_req_t` = `u16 addr, u8 len` (len ≤ 64) | `len` raw bytes |
+| 0x41 | EEPROM_WRITE | `u16 addr` then `len` raw data bytes (len = dlc−2, ≤ 64) | none (ACK only) |
+| 0x50 | SELFTEST_RUN | none | `xcom_test_selftest_t` = `u8 overall, u8 result[14]` (15 B) |
+
+**`xcom_test_caps_t` (32 bytes)** — the model-aware capability report. The PC tool reads this **once**
+and renders a per-variant menu **with zero per-variant code**: it shows only the commands whose
+peripheral bit is set. `model_name` and `connector_types` mirror the authoritative CHARGER_INFO fields
+(`CHARGEPOINT_MODEL` 0x13, `CONNECTOR_TYPE` 0x0F, `NO_OF_CONNECTORS` 0x10) rather than duplicating them.
+
+```
+Offset  Size  Field              Description
+──────  ────  ─────────────────  ─────────────────────────────────────────
+  0      1    struct_version     Always 1
+  1      1    num_connectors     Number of charge connectors (1–4)
+  2      4    connector_types[4] XCOM_CONNECTOR_* per connector
+  6      1    ntc_count          Number of NTC sensors (0 if none)
+  7      1    reserved           0
+  8      4    peripherals        XCOM_TPER_* bitmap, uint32_t LE (see below)
+ 12     20    model_name         Null-terminated ASCII (= CHARGEPOINT_MODEL)
+```
+
+**Peripheral-present bitmap** (`peripherals`, and the index of `xcom_test_selftest_t.result[]`):
+
+| Bit | Mask | XCOM_TPER_* | Peripheral |
+|-----|------|-------------|------------|
+| 0 | 0x0001 | RGB_LED | RGB status LED(s) |
+| 1 | 0x0002 | BUZZER | Buzzer |
+| 2 | 0x0004 | RELAY | AC contactor / relay |
+| 3 | 0x0008 | RFID | RFID reader |
+| 4 | 0x0010 | EEPROM | External EEPROM |
+| 5 | 0x0020 | NTC | NTC temperature sensor(s) — count in `ntc_count` |
+| 6 | 0x0040 | METER | Energy meter |
+| 7 | 0x0080 | RCD | Residual-current device |
+| 8 | 0x0100 | ESTOP | Emergency-stop input |
+| 9 | 0x0200 | GND_FAULT | Ground-fault detection |
+| 10 | 0x0400 | GUN_SENSE | Gun-connected sense input |
+| 11 | 0x0800 | CP | IEC 61851 control pilot |
+| 12 | 0x1000 | PWM | CP PWM generator |
+| 13 | 0x2000 | ESP_LINK | ESP8266 connectivity link |
+
+**Digital-input bitmap** (`xcom_test_dinputs_t.inputs`) — a bit reads 1 when the input is **asserted**:
+
+| Bit | Mask | XCOM_TDIN_* | Meaning |
+|-----|------|-------------|---------|
+| 0 | 0x0001 | ESTOP | Emergency stop pressed |
+| 1 | 0x0002 | RCD | RCD tripped |
+| 2 | 0x0004 | GND_FAULT | Ground fault present |
+| 16+n | 1<<(16+n) | GUN(n) | Gun connected on connector n (0..3) |
+
+**Enumerated fields:**
+- `pilot_state` (`xcom_test_cp_state_t`): `0=A` (+12 V, no EV), `1=B` (+9 V), `2=C` (+6 V, charging),
+  `3=D` (+3 V, vent), `4=E` (0 V, error), `5=F` (−12 V, EVSE off), `0xFF`=unknown.
+- `pattern` (`xcom_test_buzzer_pattern_t`): `0=OFF`, `1=ON` (steady), `2=BEEP`, `3=CHIRP`.
+- `xcom_test_result_t`: `0=PASS`, `1=FAIL`, `2=SKIP` (not present), `0xFF`=unknown.
+
+**SELFTEST_RUN** is a thin firmware-assisted trigger: the charger quickly checks each **present**
+peripheral and returns an `overall` verdict plus a `result[14]` array indexed 1:1 with the `XCOM_TPER_*`
+bit positions (`SKIP` where the bit is clear). `overall` is `PASS` only if every present peripheral
+passes. The PC tool may instead **orchestrate** the sequence itself by calling the individual
+`SET_*`/`READ_*` commands — both paths are supported; `SELFTEST_RUN` is the quick one-shot path.
+
 ---
 
 ## 8. Retry and Timeout Policy
@@ -287,6 +385,8 @@ Notes:
 | NET_PIPE OPEN/CLOSE | ESP→C | 2 | 2 000 | 4 000 |
 | NET_PIPE DATA_TX/RX | both | 0 | — | fire-and-forget |
 | LOG_CONTROL | O→C | 2 | 500 | 1 000 |
+| TEST_MODE actuators/reads | PC→C | 2 | 500 | 1 000 |
+| TEST_MODE SELFTEST_RUN | PC→C | 1 | 5 000 | 5 000 |
 
 ---
 
@@ -336,3 +436,7 @@ Example: GSM + WiFi only unit → `comm_modes = 0x05` (XCOM_COMM_WIFI | XCOM_COM
 | 2 | Added: CONNECTOR_EVENT (0x09), HEARTBEAT (0x0A) in CHARGING_CTRL; CHARGER_IDENTITY (0x21) in CHARGER_INFO; OCPP_CARD_STATUS (0x13) in CHARGER_OP; CHARGER_CONFIG commands aligned between both MCUs; explicit numeric values for all enumerators (no auto-increment) |
 | 2 (lib v2.1.0) | Completed Python binding; OTA install-result constants |
 | 2 (lib v2.2.0) | NET_PIPE (0x07) transparent PPP byte-pipe; LOG_CONTROL (0x14) + ASCII `EVILOG` trigger; documented raised baud |
+| 2 (lib v2.2.1) | Documented FILE_HANDLING (0x05) per-command payload contract (§7.7); no symbol changes |
+| 2 (lib v2.3.0) | `XCOM_BUFFER_SIZE` 5000→1280; FILE_HANDLING WRITE/READ chunks ≤1024 B |
+| 2 (lib v2.4.0) | CHARGER_CONFIG QR_BASE_URL read/write (0x36/0x37) |
+| 2 (lib v2.5.0) | TEST_MODE (0x08) PC production/bench test mode — capabilities, actuators, reads, RFID, EEPROM, self-test (§7.8) |

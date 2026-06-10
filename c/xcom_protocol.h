@@ -159,7 +159,8 @@ typedef enum
     XCOM_DEVICE_TYPE_METER          = 0x04, /**< Meter data */
     XCOM_FILE_HANDLING              = 0x05, /**< File-system proxy */
     XCOM_DEVICE_TYPE_OCPP_CONFIG_KEYS = 0x06, /**< OCPP 1.6 config key writes */
-    XCOM_DEVICE_TYPE_NET_PIPE       = 0x07  /**< Transparent PPP byte-pipe to the GSM modem (v2.2.0) */
+    XCOM_DEVICE_TYPE_NET_PIPE       = 0x07, /**< Transparent PPP byte-pipe to the GSM modem (v2.2.0) */
+    XCOM_DEVICE_TYPE_TEST_MODE      = 0x08  /**< PC production/bench test mode (v2.5.0) */
 } xcom_device_type_t;
 
 /* =========================================================================
@@ -511,6 +512,276 @@ typedef struct __attribute__((packed))
 /* Log-control payload values for XCOM_CMD_OPS_LOG_CONTROL (CHARGER_OP 0x14). */
 #define XCOM_LOG_OFF  0x00U
 #define XCOM_LOG_ON   0x01U
+
+/* =========================================================================
+ * XCOM_DEVICE_TYPE_TEST_MODE command IDs (v2.5.0)
+ *
+ * Production / bench test mode driven by a PC Python tool over XCOM on the
+ * fixed production UART. The PC is always the CLIENT; the charger MCU (APM32)
+ * is the SERVER. Every command is request/response and ACKed: response
+ * payload byte [0] is XCOM_ACK (0xA5) or XCOM_NACK (0x5A); any return data
+ * follows from offset 1 (same framing convention as FILE_HANDLING §7.7).
+ *
+ * Test mode is a privileged state that bypasses the normal charging state
+ * machine to let the PC actuate peripherals and read raw sensors directly.
+ * It MUST NOT be enterable accidentally: ENTER_TEST_MODE carries a 4-byte
+ * magic (XCOM_TEST_MODE_MAGIC) and the charger MUST refuse entry while a
+ * charging session is active. All actuator/read/RFID/EEPROM commands are
+ * NACKed unless test mode is active. GET_CAPABILITIES and GET_TEST_STATUS
+ * are answerable in any state. EXIT_TEST_MODE (or a reboot) returns to
+ * normal operation. Payloads are tiny — no chunking concerns.
+ * ========================================================================= */
+
+typedef enum
+{
+    XCOM_CMD_TEST_ENTER             = 0x00, /**< Enter test mode (payload = 4-byte magic); ACK on success */
+    XCOM_CMD_TEST_EXIT              = 0x01, /**< Leave test mode, resume normal operation; ACKed */
+    XCOM_CMD_TEST_GET_STATUS        = 0x02, /**< Query test-mode active flag (xcom_test_status_t) */
+    XCOM_CMD_TEST_GET_CAPABILITIES  = 0x03, /**< Model-aware capability report (xcom_test_caps_t) */
+
+    /* Actuators (test mode only) */
+    XCOM_CMD_TEST_SET_RGB           = 0x10, /**< Drive an RGB LED (xcom_test_rgb_t) */
+    XCOM_CMD_TEST_SET_BUZZER        = 0x11, /**< Drive the buzzer (xcom_test_buzzer_t) */
+    XCOM_CMD_TEST_SET_RELAY         = 0x12, /**< Drive a contactor/relay (xcom_test_relay_t) */
+
+    /* Reads (test mode only) */
+    XCOM_CMD_TEST_READ_CP           = 0x20, /**< Read CP pilot mV + pilot state (xcom_test_cp_t) */
+    XCOM_CMD_TEST_READ_PWM          = 0x21, /**< Read CP PWM duty (xcom_test_pwm_t) */
+    XCOM_CMD_TEST_READ_NTC          = 0x22, /**< Read one NTC temperature sensor (xcom_test_ntc_t) */
+    XCOM_CMD_TEST_READ_METER        = 0x23, /**< Read meter V/I/energy (xcom_test_meter_t) */
+    XCOM_CMD_TEST_READ_DIGITAL_IN   = 0x24, /**< Read digital-input bitmap (xcom_test_dinputs_t) */
+    XCOM_CMD_TEST_GET_ESP_LINK      = 0x25, /**< ESP8266 link present/alive (xcom_test_esp_link_t) */
+
+    /* RFID */
+    XCOM_CMD_TEST_RFID_POLL         = 0x30, /**< Poll for a presented card UID (xcom_test_rfid_t) */
+
+    /* EEPROM */
+    XCOM_CMD_TEST_EEPROM_READ       = 0x40, /**< Read EEPROM bytes (req xcom_test_eeprom_rd_req_t) */
+    XCOM_CMD_TEST_EEPROM_WRITE      = 0x41, /**< Write EEPROM bytes (req xcom_test_eeprom_wr_req_t) */
+
+    /* Self-test */
+    XCOM_CMD_TEST_SELFTEST_RUN      = 0x50, /**< Firmware-assisted self-test (xcom_test_selftest_t) */
+
+    XCOM_CMD_TEST_MODE_MAX /**< Sentinel */
+} xcom_test_mode_cmd_t;
+
+/** @brief 4-byte little-endian magic that must accompany XCOM_CMD_TEST_ENTER.
+ *  ASCII "TEST" (0x54 0x45 0x53 0x54). Guards against accidental entry. */
+#define XCOM_TEST_MODE_MAGIC  0x54534554UL
+
+/* -------------------------------------------------------------------------
+ * Peripheral-present bitmap (xcom_test_caps_t.peripherals, 32-bit LE).
+ *
+ * One bit per peripheral class that the PC tool uses to render a per-variant
+ * menu with ZERO per-variant code: if the bit is set the variant has that
+ * peripheral and the corresponding TEST_MODE command is meaningful. NTC count
+ * and connector count are carried as separate fields (see xcom_test_caps_t).
+ * ------------------------------------------------------------------------- */
+
+#define XCOM_TPER_RGB_LED      (1UL << 0)  /**< RGB status LED(s) present */
+#define XCOM_TPER_BUZZER       (1UL << 1)  /**< Buzzer present */
+#define XCOM_TPER_RELAY        (1UL << 2)  /**< AC contactor/relay present */
+#define XCOM_TPER_RFID         (1UL << 3)  /**< RFID reader present */
+#define XCOM_TPER_EEPROM       (1UL << 4)  /**< External EEPROM present */
+#define XCOM_TPER_NTC          (1UL << 5)  /**< NTC temperature sensor(s) present (count in ntc_count) */
+#define XCOM_TPER_METER        (1UL << 6)  /**< Energy meter present */
+#define XCOM_TPER_RCD          (1UL << 7)  /**< RCD / residual-current device present */
+#define XCOM_TPER_ESTOP        (1UL << 8)  /**< Emergency-stop input present */
+#define XCOM_TPER_GND_FAULT    (1UL << 9)  /**< Ground-fault detection present */
+#define XCOM_TPER_GUN_SENSE    (1UL << 10) /**< Gun-connected sense input present */
+#define XCOM_TPER_CP           (1UL << 11) /**< IEC 61851 CP (control pilot) present */
+#define XCOM_TPER_PWM          (1UL << 12) /**< CP PWM generator present */
+#define XCOM_TPER_ESP_LINK     (1UL << 13) /**< ESP8266 connectivity link present */
+
+/** @brief CP pilot state codes (xcom_test_cp_t.pilot_state).
+ *  Mirrors IEC 61851 states A..F by their canonical letters. */
+typedef enum
+{
+    XCOM_TEST_CP_STATE_A = 0x00, /**< +12 V — no EV connected */
+    XCOM_TEST_CP_STATE_B = 0x01, /**< +9 V  — EV connected, not ready */
+    XCOM_TEST_CP_STATE_C = 0x02, /**< +6 V  — EV ready, charging (no vent) */
+    XCOM_TEST_CP_STATE_D = 0x03, /**< +3 V  — EV ready, charging (vent required) */
+    XCOM_TEST_CP_STATE_E = 0x04, /**< 0 V   — error / shorted CP */
+    XCOM_TEST_CP_STATE_F = 0x05, /**< -12 V — EVSE not available */
+    XCOM_TEST_CP_STATE_UNKNOWN = 0xFF
+} xcom_test_cp_state_t;
+
+/** @brief Buzzer pattern codes (xcom_test_buzzer_t.pattern). */
+typedef enum
+{
+    XCOM_TEST_BUZZER_OFF   = 0x00, /**< Silence (duration ignored) */
+    XCOM_TEST_BUZZER_ON    = 0x01, /**< Steady tone for duration_ms */
+    XCOM_TEST_BUZZER_BEEP  = 0x02, /**< Short beep pattern for duration_ms */
+    XCOM_TEST_BUZZER_CHIRP = 0x03  /**< Repeated chirp for duration_ms */
+} xcom_test_buzzer_pattern_t;
+
+/* -------------------------------------------------------------------------
+ * Digital-input bitmap (xcom_test_dinputs_t.inputs, 32-bit LE).
+ * Global safety inputs in the low bits; per-connector gun-connected sense in
+ * bits 16..19 (connector 0..3). A bit reads 1 when the input is ASSERTED
+ * (E-stop pressed, RCD tripped, ground fault present, gun connected).
+ * ------------------------------------------------------------------------- */
+
+#define XCOM_TDIN_ESTOP        (1UL << 0)  /**< Emergency stop asserted */
+#define XCOM_TDIN_RCD          (1UL << 1)  /**< RCD tripped */
+#define XCOM_TDIN_GND_FAULT    (1UL << 2)  /**< Ground fault detected */
+#define XCOM_TDIN_GUN(conn)    (1UL << (16U + (conn))) /**< Gun connected on connector (0..3) */
+
+/** @brief Self-test result codes (per-peripheral byte + overall). */
+typedef enum
+{
+    XCOM_TEST_RESULT_PASS    = 0x00, /**< Peripheral passed */
+    XCOM_TEST_RESULT_FAIL    = 0x01, /**< Peripheral failed */
+    XCOM_TEST_RESULT_SKIP    = 0x02, /**< Not present / not tested on this variant */
+    XCOM_TEST_RESULT_UNKNOWN = 0xFF
+} xcom_test_result_t;
+
+/* =========================================================================
+ * TEST_MODE payload structures (v2.5.0)
+ * ========================================================================= */
+
+/** @brief Return data for XCOM_CMD_TEST_GET_STATUS (1 byte, after ACK). */
+typedef struct __attribute__((packed))
+{
+    uint8_t active; /**< 1 = test mode active, 0 = normal operation */
+} xcom_test_status_t;
+
+/**
+ * @brief Return data for XCOM_CMD_TEST_GET_CAPABILITIES (after ACK).
+ *        The PC tool reads this once and renders a per-variant menu from it
+ *        with no per-variant code. model_name / connector_types mirror the
+ *        CHARGER_INFO fields (CHARGEPOINT_MODEL 0x13, CONNECTOR_TYPE 0x0F,
+ *        NO_OF_CONNECTORS 0x10) so the data is authoritative and not
+ *        duplicated by hand.  Total size: 30 bytes.
+ */
+typedef struct __attribute__((packed))
+{
+    uint8_t  struct_version;     /**< Payload format version (1) */
+    uint8_t  num_connectors;     /**< Number of charge connectors (1–4) */
+    uint8_t  connector_types[4]; /**< XCOM_CONNECTOR_* per connector */
+    uint8_t  ntc_count;          /**< Number of NTC sensors (0 if none) */
+    uint8_t  reserved;           /**< Pad / future use (0) */
+    uint32_t peripherals;        /**< XCOM_TPER_* bitmap, little-endian */
+    char     model_name[20];     /**< Null-terminated, mirrors CHARGEPOINT_MODEL */
+} xcom_test_caps_t;              /* 1+1+4+1+1+4+20 = 32 bytes */
+
+/** @brief Request payload for XCOM_CMD_TEST_SET_RGB (4 bytes).
+ *  connector_id may instead be carried in the frame field; this struct keeps
+ *  it explicit so the command is self-describing. */
+typedef struct __attribute__((packed))
+{
+    uint8_t connector;  /**< Target connector / LED index (0-based) */
+    uint8_t r;          /**< Red   0..255 */
+    uint8_t g;          /**< Green 0..255 */
+    uint8_t b;          /**< Blue  0..255 */
+} xcom_test_rgb_t;
+
+/** @brief Request payload for XCOM_CMD_TEST_SET_BUZZER (3 bytes). */
+typedef struct __attribute__((packed))
+{
+    uint8_t  pattern;     /**< xcom_test_buzzer_pattern_t */
+    uint16_t duration_ms; /**< Duration in ms (0 = until next command for ON) */
+} xcom_test_buzzer_t;
+
+/** @brief Request payload for XCOM_CMD_TEST_SET_RELAY (2 bytes). */
+typedef struct __attribute__((packed))
+{
+    uint8_t connector; /**< Target connector index (0-based) */
+    uint8_t on;        /**< 1 = energise relay, 0 = de-energise */
+} xcom_test_relay_t;
+
+/** @brief Return data for XCOM_CMD_TEST_READ_CP (4 bytes, after ACK).
+ *  Request carries the connector index in the frame connector_id field. */
+typedef struct __attribute__((packed))
+{
+    int16_t mv;          /**< CP high-level voltage in millivolts (signed) */
+    uint8_t pilot_state; /**< xcom_test_cp_state_t */
+    uint8_t reserved;    /**< Pad (0) */
+} xcom_test_cp_t;
+
+/** @brief Return data for XCOM_CMD_TEST_READ_PWM (2 bytes, after ACK).
+ *  Request carries the connector index in the frame connector_id field. */
+typedef struct __attribute__((packed))
+{
+    uint16_t duty_permille; /**< CP PWM duty 0..1000 (= 0.0..100.0 %) */
+} xcom_test_pwm_t;
+
+/** @brief Return data for XCOM_CMD_TEST_READ_NTC (3 bytes, after ACK).
+ *  Request: 1-byte sensor index in the payload. */
+typedef struct __attribute__((packed))
+{
+    uint8_t sensor_idx;  /**< Echoed sensor index */
+    int16_t temp_c_x10;  /**< Temperature in 0.1 °C steps (e.g. 253 = 25.3 °C) */
+} xcom_test_ntc_t;
+
+/** @brief Return data for XCOM_CMD_TEST_READ_METER (14 bytes, after ACK).
+ *  Request: 1-byte connector/phase index in the payload. */
+typedef struct __attribute__((packed))
+{
+    uint8_t  phase;            /**< Echoed connector/phase index */
+    uint32_t voltage_mv;       /**< RMS voltage in mV */
+    uint32_t current_ma;       /**< RMS current in mA */
+    uint32_t active_energy_wh; /**< Cumulative active energy in Wh */
+    uint8_t  reserved;         /**< Pad (0) */
+} xcom_test_meter_t;
+
+/** @brief Return data for XCOM_CMD_TEST_READ_DIGITAL_IN (4 bytes, after ACK). */
+typedef struct __attribute__((packed))
+{
+    uint32_t inputs; /**< XCOM_TDIN_* bitmap, little-endian */
+} xcom_test_dinputs_t;
+
+/** @brief Return data for XCOM_CMD_TEST_GET_ESP_LINK (2 bytes, after ACK). */
+typedef struct __attribute__((packed))
+{
+    uint8_t present; /**< 1 = ESP8266 link hardware present */
+    uint8_t alive;   /**< 1 = a recent XCOM frame was seen from the ESP8266 */
+} xcom_test_esp_link_t;
+
+/** @brief Return data for XCOM_CMD_TEST_RFID_POLL (after ACK).
+ *  uid_len = 0 means no card present. Max UID = 10 bytes (ISO 14443 triple). */
+typedef struct __attribute__((packed))
+{
+    uint8_t uid_len;    /**< 0 = none, else 4/7/10 */
+    uint8_t uid[10];    /**< Card UID, uid_len bytes valid */
+} xcom_test_rfid_t;     /* 11 bytes */
+
+#define XCOM_TEST_RFID_UID_MAX  10U
+
+/** @brief Request payload for XCOM_CMD_TEST_EEPROM_READ (3 bytes). */
+typedef struct __attribute__((packed))
+{
+    uint16_t addr; /**< EEPROM byte address (LE) */
+    uint8_t  len;  /**< Number of bytes to read (1..64) */
+} xcom_test_eeprom_rd_req_t;
+
+/** @brief Request header for XCOM_CMD_TEST_EEPROM_WRITE (addr then raw bytes).
+ *  Wire layout: u16 addr (LE) followed by `len` raw data bytes (len = dlc-2). */
+typedef struct __attribute__((packed))
+{
+    uint16_t addr; /**< EEPROM byte address (LE); data bytes follow */
+} xcom_test_eeprom_wr_req_t;
+
+#define XCOM_TEST_EEPROM_MAX_LEN  64U /**< Max bytes per EEPROM read/write op */
+
+/**
+ * @brief Return data for XCOM_CMD_TEST_SELFTEST_RUN (after ACK).
+ *
+ * Thin firmware-assisted trigger: the charger runs a quick built-in check of
+ * each PRESENT peripheral and returns an overall verdict plus a per-peripheral
+ * result aligned 1:1 with the XCOM_TPER_* bit positions (result[i] is the
+ * result for bit i; XCOM_TEST_RESULT_SKIP where that bit is clear). The PC
+ * tool may instead orchestrate the sequence itself by calling the individual
+ * SET / READ commands — both are supported; this command is the quick path.
+ * Total size: 1 + 14 = 15 bytes (14 = number of defined XCOM_TPER_* bits).
+ */
+typedef struct __attribute__((packed))
+{
+    uint8_t overall;    /**< xcom_test_result_t (PASS only if all present pass) */
+    uint8_t result[14]; /**< Per-peripheral xcom_test_result_t, indexed by XCOM_TPER_* bit */
+} xcom_test_selftest_t;
+
+#define XCOM_TEST_SELFTEST_PERIPH_COUNT  14U /**< Length of xcom_test_selftest_t.result[] */
 
 /* =========================================================================
  * Connector hardware type codes

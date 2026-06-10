@@ -66,6 +66,7 @@ class XcomDeviceType(IntEnum):
     FILE_HANDLING   = 0x05
     OCPP_CONFIG_KEYS = 0x06
     NET_PIPE        = 0x07  # v2.2.0
+    TEST_MODE       = 0x08  # v2.5.0
 
 
 class XcomChargingCtrlCmd(IntEnum):
@@ -313,6 +314,100 @@ class XcomNetPipeState(IntEnum):
 # Log-control payload values for XcomChargerOpsCmd.LOG_CONTROL (CHARGER_OP 0x14)
 XCOM_LOG_OFF = 0x00
 XCOM_LOG_ON  = 0x01
+
+
+class XcomTestModeCmd(IntEnum):
+    """TEST_MODE (0x08) command IDs — PC production/bench test mode (v2.5.0).
+
+    PC is the client; APM32 is the server. Every command is ACKed: response
+    payload[0] = ACK/NACK, return data follows from offset 1.
+    """
+    ENTER             = 0x00  # payload = 4-byte magic XCOM_TEST_MODE_MAGIC
+    EXIT              = 0x01
+    GET_STATUS        = 0x02
+    GET_CAPABILITIES  = 0x03
+    # Actuators (test mode only)
+    SET_RGB           = 0x10
+    SET_BUZZER        = 0x11
+    SET_RELAY         = 0x12
+    # Reads (test mode only)
+    READ_CP           = 0x20
+    READ_PWM          = 0x21
+    READ_NTC          = 0x22
+    READ_METER        = 0x23
+    READ_DIGITAL_IN   = 0x24
+    GET_ESP_LINK      = 0x25
+    # RFID
+    RFID_POLL         = 0x30
+    # EEPROM
+    EEPROM_READ       = 0x40
+    EEPROM_WRITE      = 0x41
+    # Self-test
+    SELFTEST_RUN      = 0x50
+
+
+# 4-byte LE magic guarding ENTER (ASCII "TEST")
+XCOM_TEST_MODE_MAGIC = 0x54534554
+
+# Peripheral-present bitmap (xcom_test_caps_t.peripherals)
+XCOM_TPER_RGB_LED   = (1 << 0)
+XCOM_TPER_BUZZER    = (1 << 1)
+XCOM_TPER_RELAY     = (1 << 2)
+XCOM_TPER_RFID      = (1 << 3)
+XCOM_TPER_EEPROM    = (1 << 4)
+XCOM_TPER_NTC       = (1 << 5)
+XCOM_TPER_METER     = (1 << 6)
+XCOM_TPER_RCD       = (1 << 7)
+XCOM_TPER_ESTOP     = (1 << 8)
+XCOM_TPER_GND_FAULT = (1 << 9)
+XCOM_TPER_GUN_SENSE = (1 << 10)
+XCOM_TPER_CP        = (1 << 11)
+XCOM_TPER_PWM       = (1 << 12)
+XCOM_TPER_ESP_LINK  = (1 << 13)
+
+# Bit position -> label, for rendering a per-variant menu with zero per-variant code.
+# Index matches the XCOM_TPER_* bit AND the xcom_test_selftest_t.result[] index.
+XCOM_TPER_LABELS = [
+    "RGB_LED", "BUZZER", "RELAY", "RFID", "EEPROM", "NTC", "METER",
+    "RCD", "ESTOP", "GND_FAULT", "GUN_SENSE", "CP", "PWM", "ESP_LINK",
+]
+XCOM_TEST_SELFTEST_PERIPH_COUNT = 14
+
+# Digital-input bitmap (xcom_test_dinputs_t.inputs)
+XCOM_TDIN_ESTOP     = (1 << 0)
+XCOM_TDIN_RCD       = (1 << 1)
+XCOM_TDIN_GND_FAULT = (1 << 2)
+def XCOM_TDIN_GUN(conn: int) -> int:
+    """Bit mask for gun-connected sense on connector `conn` (0..3)."""
+    return (1 << (16 + conn))
+
+XCOM_TEST_RFID_UID_MAX   = 10
+XCOM_TEST_EEPROM_MAX_LEN = 64
+
+
+class XcomTestCpState(IntEnum):
+    """xcom_test_cp_state_t — IEC 61851 CP pilot states."""
+    A = 0x00
+    B = 0x01
+    C = 0x02
+    D = 0x03
+    E = 0x04
+    F = 0x05
+    UNKNOWN = 0xFF
+
+
+class XcomTestBuzzerPattern(IntEnum):
+    OFF   = 0x00
+    ON    = 0x01
+    BEEP  = 0x02
+    CHIRP = 0x03
+
+
+class XcomTestResult(IntEnum):
+    PASS    = 0x00
+    FAIL    = 0x01
+    SKIP    = 0x02
+    UNKNOWN = 0xFF
 
 
 class XcomConnectorEventType(IntEnum):
@@ -580,3 +675,149 @@ def unpack_ocpp_status(data: bytes) -> dict:
 def pack_heartbeat_response(utc_timestamp: int) -> bytes:
     """Pack xcom_heartbeat_response_t (4 bytes)."""
     return struct.pack('<I', utc_timestamp)
+
+
+# ---------------------------------------------------------------------------
+# TEST_MODE payload helpers (v2.5.0)
+#
+# Request packers build the payload that goes in XcomFrame.data. Response
+# unpackers take the bytes AFTER the leading ACK byte (i.e. response_frame.data[1:])
+# unless noted; an ACK-only response carries no return data.
+# ---------------------------------------------------------------------------
+
+def pack_test_enter() -> bytes:
+    """Payload for TEST_MODE.ENTER — 4-byte LE magic."""
+    return struct.pack('<I', XCOM_TEST_MODE_MAGIC)
+
+
+def unpack_test_status(data: bytes) -> dict:
+    """Unpack xcom_test_status_t (1 byte) from return data."""
+    if len(data) < 1:
+        raise ValueError("test status payload too short")
+    return {'active': bool(data[0])}
+
+
+def unpack_test_capabilities(data: bytes) -> dict:
+    """Unpack xcom_test_caps_t (32 bytes) from return data."""
+    if len(data) < 32:
+        raise ValueError(f"capabilities payload too short: {len(data)}")
+    fields = struct.unpack_from('<BB4BBBI20s', data)
+    peripherals = fields[8]
+    present = [XCOM_TPER_LABELS[i] for i in range(XCOM_TEST_SELFTEST_PERIPH_COUNT)
+              if peripherals & (1 << i)]
+    return {
+        'struct_version':  fields[0],
+        'num_connectors':  fields[1],
+        'connector_types': list(fields[2:6]),
+        'ntc_count':       fields[6],
+        'peripherals':     peripherals,
+        'present':         present,
+        'model_name':      fields[9].rstrip(b'\x00').decode(errors='replace'),
+    }
+
+
+def pack_test_rgb(connector: int, r: int, g: int, b: int) -> bytes:
+    """Payload for TEST_MODE.SET_RGB (xcom_test_rgb_t, 4 bytes)."""
+    return struct.pack('<BBBB', connector, r, g, b)
+
+
+def pack_test_buzzer(pattern: int, duration_ms: int) -> bytes:
+    """Payload for TEST_MODE.SET_BUZZER (xcom_test_buzzer_t, 3 bytes)."""
+    return struct.pack('<BH', pattern, duration_ms)
+
+
+def pack_test_relay(connector: int, on: int) -> bytes:
+    """Payload for TEST_MODE.SET_RELAY (xcom_test_relay_t, 2 bytes)."""
+    return struct.pack('<BB', connector, 1 if on else 0)
+
+
+def unpack_test_cp(data: bytes) -> dict:
+    """Unpack xcom_test_cp_t (4 bytes) from return data."""
+    if len(data) < 4:
+        raise ValueError("CP read payload too short")
+    mv, state, _ = struct.unpack_from('<hBB', data)
+    return {'mv': mv, 'pilot_state': XcomTestCpState(state)}
+
+
+def unpack_test_pwm(data: bytes) -> dict:
+    """Unpack xcom_test_pwm_t (2 bytes) from return data."""
+    if len(data) < 2:
+        raise ValueError("PWM read payload too short")
+    return {'duty_permille': struct.unpack_from('<H', data)[0]}
+
+
+def unpack_test_ntc(data: bytes) -> dict:
+    """Unpack xcom_test_ntc_t (3 bytes) from return data."""
+    if len(data) < 3:
+        raise ValueError("NTC read payload too short")
+    idx, t = struct.unpack_from('<Bh', data)
+    return {'sensor_idx': idx, 'temp_c': t / 10.0}
+
+
+def unpack_test_meter(data: bytes) -> dict:
+    """Unpack xcom_test_meter_t (14 bytes) from return data."""
+    if len(data) < 14:
+        raise ValueError("meter read payload too short")
+    phase, v_mv, i_ma, e_wh, _ = struct.unpack_from('<BIIIB', data)
+    return {'phase': phase, 'voltage_mv': v_mv, 'current_ma': i_ma,
+            'active_energy_wh': e_wh}
+
+
+def unpack_test_digital_inputs(data: bytes) -> dict:
+    """Unpack xcom_test_dinputs_t (4 bytes) from return data."""
+    if len(data) < 4:
+        raise ValueError("digital inputs payload too short")
+    bits = struct.unpack_from('<I', data)[0]
+    return {
+        'inputs':    bits,
+        'estop':     bool(bits & XCOM_TDIN_ESTOP),
+        'rcd':       bool(bits & XCOM_TDIN_RCD),
+        'gnd_fault': bool(bits & XCOM_TDIN_GND_FAULT),
+        'gun':       [bool(bits & XCOM_TDIN_GUN(c)) for c in range(4)],
+    }
+
+
+def unpack_test_esp_link(data: bytes) -> dict:
+    """Unpack xcom_test_esp_link_t (2 bytes) from return data."""
+    if len(data) < 2:
+        raise ValueError("ESP link payload too short")
+    return {'present': bool(data[0]), 'alive': bool(data[1])}
+
+
+def unpack_test_rfid(data: bytes) -> dict:
+    """Unpack xcom_test_rfid_t (1 + up to 10 bytes) from return data."""
+    if len(data) < 1:
+        raise ValueError("RFID poll payload too short")
+    uid_len = data[0]
+    if uid_len > XCOM_TEST_RFID_UID_MAX or len(data) < 1 + uid_len:
+        raise ValueError("RFID poll uid_len invalid")
+    return {'uid': bytes(data[1:1 + uid_len]) if uid_len else None}
+
+
+def pack_test_eeprom_read(addr: int, length: int) -> bytes:
+    """Payload for TEST_MODE.EEPROM_READ (xcom_test_eeprom_rd_req_t, 3 bytes)."""
+    if not (1 <= length <= XCOM_TEST_EEPROM_MAX_LEN):
+        raise ValueError("EEPROM read length out of range")
+    return struct.pack('<HB', addr, length)
+
+
+def pack_test_eeprom_write(addr: int, payload: bytes) -> bytes:
+    """Payload for TEST_MODE.EEPROM_WRITE — u16 addr LE then raw bytes."""
+    if not (1 <= len(payload) <= XCOM_TEST_EEPROM_MAX_LEN):
+        raise ValueError("EEPROM write length out of range")
+    return struct.pack('<H', addr) + bytes(payload)
+
+
+def unpack_test_eeprom_read(data: bytes) -> bytes:
+    """Return data for TEST_MODE.EEPROM_READ — the raw bytes read."""
+    return bytes(data)
+
+
+def unpack_test_selftest(data: bytes) -> dict:
+    """Unpack xcom_test_selftest_t (1 + 14 bytes) from return data."""
+    if len(data) < 1 + XCOM_TEST_SELFTEST_PERIPH_COUNT:
+        raise ValueError("selftest payload too short")
+    overall = XcomTestResult(data[0])
+    results = {XCOM_TPER_LABELS[i]: XcomTestResult(data[1 + i])
+               for i in range(XCOM_TEST_SELFTEST_PERIPH_COUNT)}
+    return {'overall': overall, 'results': results}
