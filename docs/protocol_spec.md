@@ -1,6 +1,6 @@
 # XCOM Binary Protocol Specification
 
-Version: **2** (`XCOM_PROTOCOL_VERSION = 2`) · library **v2.11.0**  
+Version: **2** (`XCOM_PROTOCOL_VERSION = 2`) · library **v2.12.0**  
 Last updated: 2026-06-13
 
 ---
@@ -313,7 +313,7 @@ means the connector index is carried in the **frame `connector_id` field**, not 
 | 0x46 | METER_STATUS | none | `xcom_test_meter_status_t` = `u8 connected, u8 error_code` (2 B) |
 | 0x47 | SET_PWM | `xcom_test_set_pwm_t` = `u8 connector_id, u16 duty_permille` (0..1000) | none (ACK only) |
 | 0x48 | EEPROM_STATUS | none | `xcom_test_eeprom_status_t` = `u8 connected, u8 error_code` (2 B) |
-| 0x49 | DISPLAY_BACKLIGHT | `xcom_test_display_backlight_t` = `u8 on` (0 = off, non-zero = on) | none (ACK only) |
+| 0x49 | DISPLAY_STATUS | none (empty) | `xcom_test_display_status_t` = `u8 connected, u8 error_code` |
 | 0x50 | SELFTEST_RUN | none | `xcom_test_selftest_t` = `u8 overall, u8 result[14]` (15 B) |
 
 **`xcom_test_meter_t` (38 bytes)** — full per-connector meter value set, mirroring the control card's
@@ -450,14 +450,17 @@ responded on the I2C bus this read, `0` = no response / not present), `u8 error_
 driver error code, `0` = OK; non-zero encodes the failure reason; `0xFF` = not present / feature off).
 It mirrors **METER_STATUS (0x46)** for the EEPROM peripheral — the quick "is the EEPROM alive?" check.
 
-**DISPLAY_BACKLIGHT (0x49)** is a simple write that drives the DWIN/TFT display backlight so an operator
-can confirm the graphical display lights up on Display-variant boards. Request is
-`xcom_test_display_backlight_t` (1 B) = `u8 on` (`0` = backlight off, non-zero = on); the response is an
-**ACK with no payload** (dlc = 0), exactly like SET_RGB / SET_BUZZER / SET_RELAY. The companion capability
-bit **`XCOM_TPER_DISPLAY`** (bit 14, mask `0x4000`) advertises the display in `xcom_test_caps_t.peripherals`
-so the PC tool only offers this command on variants that have a graphical display. Bit 14 lies **outside**
-the fixed `xcom_test_selftest_t.result[14]` array (`XCOM_TEST_SELFTEST_PERIPH_COUNT` stays 14) — the display
-is checked manually here, not by SELFTEST_RUN — so the 0x50 wire format is unchanged.
+**DISPLAY_STATUS (0x49)** is a read-only connectivity/health probe for the DWIN/HMI graphical display:
+the charger performs one round-trip to the display and reports whether it answered. Request is **empty**;
+the response is `xcom_test_display_status_t` (2 B) = `u8 connected, u8 error_code`, the **identical layout**
+to METER_STATUS (0x46) and EEPROM_STATUS (0x48). `connected` = `1` when the display responded (round-trip
+OK), `0` for no response; `error_code` is `0` = OK, non-zero encodes the failure reason, `0xFF` = not
+present / feature off. Read-only / no side effects, answerable while test mode is active. The companion
+capability bit **`XCOM_TPER_DISPLAY`** (bit 14, mask `0x4000`) advertises the display in
+`xcom_test_caps_t.peripherals` so the PC tool only offers this command on variants that have a graphical
+display. Bit 14 lies **outside** the fixed `xcom_test_selftest_t.result[14]` array
+(`XCOM_TEST_SELFTEST_PERIPH_COUNT` stays 14) — the display is checked manually here, not by SELFTEST_RUN —
+so the 0x50 wire format is unchanged.
 
 **SELFTEST_RUN** is a thin firmware-assisted trigger: the charger quickly checks each **present**
 peripheral and returns an `overall` verdict plus a `result[14]` array indexed 1:1 with the `XCOM_TPER_*`
@@ -545,4 +548,5 @@ Example: GSM + WiFi only unit → `comm_modes = 0x05` (XCOM_COMM_WIFI | XCOM_COM
 | 2 (lib v2.8.0) | **Breaking layout change** to `xcom_test_meter_t` (READ_METER 0x23): 14 B V/I/energy → **38 B full meter readout** (V, I, P, Q, S, PF, freq, neutral I, active+reactive energy) as scaled ints; wire version stays 2 but firmware + tool must rebuild together (§7.8) |
 | 2 (lib v2.9.0) | TEST_MODE METER_STATUS (0x46) — AC meter connected/health check (empty req → `u8 connected, u8 error_code`); SET_PWM (0x47) — write CP pilot PWM duty per connector (`u8 connector_id, u16 duty_permille`, ACK only; NACK on no-CP/out-of-range), the write counterpart of READ_PWM (0x21). Additive; wire version stays 2 (§7.8) |
 | 2 (lib v2.10.0) | TEST_MODE EEPROM_STATUS (0x48) — EEPROM connected/health check (empty req → `u8 connected, u8 error_code`; `error_code` 0xFF = not present / feature off), mirroring METER_STATUS (0x46) for the EEPROM peripheral. Additive; wire version stays 2 (§7.8) |
-| 2 (lib v2.11.0) | TEST_MODE DISPLAY_BACKLIGHT (0x49) — toggle DWIN/TFT display backlight (req `u8 on`, ACK only) for a manual display check; new capability bit `XCOM_TPER_DISPLAY` (bit 14, mask 0x4000) in `xcom_test_caps_t.peripherals`. Bit 14 is outside the `result[14]` selftest array (count stays 14), so SELFTEST_RUN (0x50) is unchanged. Additive; wire version stays 2 (§7.8) |
+| 2 (lib v2.11.0) | TEST_MODE DISPLAY_BACKLIGHT (0x49) — toggle DWIN/TFT display backlight (req `u8 on`, ACK only) for a manual display check; new capability bit `XCOM_TPER_DISPLAY` (bit 14, mask 0x4000) in `xcom_test_caps_t.peripherals`. Bit 14 is outside the `result[14]` selftest array (count stays 14), so SELFTEST_RUN (0x50) is unchanged. Additive; wire version stays 2 (§7.8). **Superseded by v2.12.0 — never shipped.** |
+| 2 (lib v2.12.0) | TEST_MODE DISPLAY_BACKLIGHT (0x49) **replaced** by DISPLAY_STATUS (0x49) — DWIN/HMI display connected/health probe (empty req → `u8 connected, u8 error_code`; `error_code` 0xFF = not present / feature off), identical layout to METER_STATUS (0x46) / EEPROM_STATUS (0x48). Capability bit `XCOM_TPER_DISPLAY` (bit 14, mask 0x4000) unchanged. Additive; wire version stays 2 (§7.8) |

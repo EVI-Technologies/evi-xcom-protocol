@@ -574,8 +574,8 @@ typedef enum
     /* EEPROM health probe (read-only, no side effects) */
     XCOM_CMD_TEST_EEPROM_STATUS     = 0x48, /**< EEPROM connected/health check (empty req → xcom_test_eeprom_status_t) */
 
-    /* Display / HMI actuation */
-    XCOM_CMD_TEST_DISPLAY_BACKLIGHT = 0x49, /**< Toggle DWIN/TFT display backlight (req xcom_test_display_backlight_t; ACK only) */
+    /* Display health probe (read-only, no side effects) */
+    XCOM_CMD_TEST_DISPLAY_STATUS    = 0x49, /**< DWIN/HMI display connected/health probe (empty req → xcom_test_display_status_t) */
 
     /* Self-test */
     XCOM_CMD_TEST_SELFTEST_RUN      = 0x50, /**< Firmware-assisted self-test (xcom_test_selftest_t) */
@@ -955,16 +955,19 @@ typedef struct __attribute__((packed))
 } xcom_test_eeprom_status_t;  /* 2 bytes */
 
 /**
- * @brief Request payload for XCOM_CMD_TEST_DISPLAY_BACKLIGHT (1 byte).
+ * @brief Return data for XCOM_CMD_TEST_DISPLAY_STATUS (2 bytes, after ACK).
  *
- * Simple write to drive the DWIN/TFT display backlight on or off so an
- * operator can confirm the graphical display lights up. Response is an
- * ACK with no payload (dlc = 0), mirroring SET_RGB / SET_BUZZER / SET_RELAY.
+ * Quick DWIN/HMI display connected/health probe: the charger performs one
+ * round-trip to the display and reports whether it responded plus the driver
+ * error code. Request is empty; read-only / no side effects; answerable while
+ * test mode is active. Mirrors METER_STATUS (0x46) / EEPROM_STATUS (0x48) for
+ * the graphical display peripheral.
  */
 typedef struct __attribute__((packed))
 {
-    uint8_t on; /**< 0 = backlight off, non-zero = backlight on */
-} xcom_test_display_backlight_t;  /* 1 byte */
+    uint8_t connected;  /**< 1 = display responded (round-trip OK), 0 = no response */
+    uint8_t error_code; /**< Display driver error code (0 = OK); non-zero = the failure reason; 0xFF = not present / feature off */
+} xcom_test_display_status_t;  /* 2 bytes */
 
 /**
  * @brief Return data for XCOM_CMD_TEST_SELFTEST_RUN (after ACK).

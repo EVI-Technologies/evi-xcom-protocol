@@ -1,5 +1,32 @@
 # Changelog
 
+## [2.12.0] — 2026-06-13
+
+### Changed
+- Replace TEST_MODE DISPLAY_BACKLIGHT (0x49) with DISPLAY_STATUS (0x49) connectivity probe +
+  `xcom_test_display_status_t`.
+  - `XCOM_CMD_TEST_DISPLAY_STATUS` (**0x49**, reuses the id) — **empty** request; response
+    `xcom_test_display_status_t` (2 B) = `u8 connected, u8 error_code`, **identical layout** to
+    `xcom_test_meter_status_t` (0x46) and `xcom_test_eeprom_status_t` (0x48). The charger performs one
+    round-trip to the DWIN/HMI display and reports whether it answered. `connected`: `1` = display
+    responded (round-trip OK), `0` = no response. `error_code`: `0` = OK, non-zero = failure reason,
+    `0xFF` = not present / feature off. Read-only / no side effects, answerable while test mode is active.
+  - `XCOM_TPER_DISPLAY` (**`(1UL << 14)`**, mask `0x4000`) is **unchanged** — still identifies
+    display-capable models.
+
+### Removed
+- `XCOM_CMD_TEST_DISPLAY_BACKLIGHT` (0x49) enum value and the `xcom_test_display_backlight_t` struct
+  (write-only backlight command).
+- Python helper `pack_test_display_backlight`.
+
+### Notes
+- New C symbol: struct `xcom_test_display_status_t` (2 B).
+- Python binding: `XcomTestModeCmd.DISPLAY_STATUS` (renamed from `DISPLAY_BACKLIGHT`), helper
+  `unpack_test_display_status(data) -> {'connected': bool, 'error_code': int}` (request is empty, no
+  pack helper). Constant `XCOM_TPER_DISPLAY` and the `"DISPLAY"` label are unchanged.
+- Backward-compatible at the wire level (id 0x49 retained); wire version stays **2**
+  (`XCOM_PROTOCOL_VERSION`).
+
 ## [2.11.0] — 2026-06-13
 
 ### Added
