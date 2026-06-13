@@ -566,6 +566,10 @@ typedef enum
     /* Storage / SD info (read-only, no side effects) */
     XCOM_CMD_TEST_STORAGE_INFO      = 0x44, /**< EEPROM usage: total size + per-block reserved/used/element counts (empty req → xcom_test_storage_info_t) */
     XCOM_CMD_TEST_SD_INFO           = 0x45, /**< SD card status: mounted + total/free capacity (empty req → xcom_test_sd_info_t) */
+    XCOM_CMD_TEST_METER_STATUS      = 0x46, /**< AC meter connected/health check (empty req → xcom_test_meter_status_t) */
+
+    /* Writes (test mode only) */
+    XCOM_CMD_TEST_SET_PWM           = 0x47, /**< Write CP pilot PWM duty for a connector (req xcom_test_set_pwm_t; ACK only) */
 
     /* Self-test */
     XCOM_CMD_TEST_SELFTEST_RUN      = 0x50, /**< Firmware-assisted self-test (xcom_test_selftest_t) */
@@ -898,6 +902,36 @@ typedef struct __attribute__((packed))
     uint32_t total_kb; /**< Total capacity in KiB (LE; 0 if not mounted) */
     uint32_t free_kb;  /**< Free space in KiB (LE; 0 if not mounted) */
 } xcom_test_sd_info_t;  /* 1+1+4+4 = 10 bytes */
+
+/**
+ * @brief Return data for XCOM_CMD_TEST_METER_STATUS (2 bytes, after ACK).
+ *
+ * Quick AC-meter connected/health probe: the charger performs one read on the
+ * meter bus and reports whether the meter answered plus the driver error code.
+ * Request is empty; read-only / no side effects; answerable while test mode is
+ * active. Complements READ_METER (0x23) which returns the full value set.
+ */
+typedef struct __attribute__((packed))
+{
+    uint8_t connected;  /**< 1 = AC meter responded on the bus this read, 0 = no response / fault */
+    uint8_t error_code; /**< Meter driver error code (0 = OK); non-zero = the failure reason */
+} xcom_test_meter_status_t;  /* 2 bytes */
+
+/**
+ * @brief Request payload for XCOM_CMD_TEST_SET_PWM (3 bytes).
+ *
+ * Writes the CP pilot PWM duty for one connector — the write counterpart to
+ * READ_PWM (0x21), which reads the same duty_permille back. The connector must
+ * be a TYPE2 connector (has a CP); otherwise the command is NACKed, as is a
+ * duty outside 0..1000. Response is ACK only (no payload). Because TEST_MODE
+ * suspends the charging state machine, a set duty persists until it is changed
+ * again or test mode is exited.
+ */
+typedef struct __attribute__((packed))
+{
+    uint8_t  connector_id;  /**< 0-based connector; must be a TYPE2 connector (has a CP) */
+    uint16_t duty_permille; /**< PWM duty 0..1000 (= 0.0..100.0 %) */
+} xcom_test_set_pwm_t;  /* 1+2 = 3 bytes */
 
 /**
  * @brief Return data for XCOM_CMD_TEST_SELFTEST_RUN (after ACK).

@@ -348,6 +348,9 @@ class XcomTestModeCmd(IntEnum):
     # Storage / SD info (read-only, no side effects)
     STORAGE_INFO      = 0x44
     SD_INFO           = 0x45
+    METER_STATUS      = 0x46  # AC meter connected/health check
+    # Writes (test mode only)
+    SET_PWM           = 0x47  # write CP pilot PWM duty (counterpart of READ_PWM)
     # Self-test
     SELFTEST_RUN      = 0x50
 
@@ -931,6 +934,31 @@ def unpack_test_sd_info(data: bytes) -> dict:
         'total_kb': total_kb,
         'free_kb': free_kb,
     }
+
+
+def unpack_test_meter_status(data: bytes) -> dict:
+    """Unpack xcom_test_meter_status_t (2 bytes) for TEST_MODE.METER_STATUS.
+
+    Wire layout: u8 connected, u8 error_code.
+    Returns {'connected': bool, 'error_code': int}.
+    """
+    if len(data) < 2:
+        raise ValueError("meter status payload too short")
+    connected, error_code = struct.unpack_from('<BB', data, 0)
+    return {'connected': bool(connected), 'error_code': error_code}
+
+
+def pack_test_set_pwm(connector_id: int, duty_permille: int) -> bytes:
+    """Payload for TEST_MODE.SET_PWM (xcom_test_set_pwm_t, 3 bytes).
+
+    Writes the CP pilot PWM duty for a connector — the write counterpart of
+    READ_PWM (0x21). Wire layout: u8 connector_id, u16 duty_permille (LE).
+    The connector must be a TYPE2 connector (has a CP); duty is 0..1000
+    (0.0..100.0 %). The firmware NACKs a no-CP connector or out-of-range duty.
+    """
+    if not (0 <= duty_permille <= 1000):
+        raise ValueError("duty_permille must be 0..1000")
+    return struct.pack('<BH', connector_id, duty_permille)
 
 
 def unpack_test_selftest(data: bytes) -> dict:

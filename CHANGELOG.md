@@ -1,5 +1,35 @@
 # Changelog
 
+## [2.9.0] — 2026-06-13
+
+### Added
+- **`TEST_MODE` meter health check + CP-PWM write** (device 0x08) — two new commands
+  (`xcom_test_mode_cmd_t`), additive (no existing IDs/structs changed):
+  - `XCOM_CMD_TEST_METER_STATUS` (**0x46**) — **empty request**; response `xcom_test_meter_status_t`
+    (2 B) = `u8 connected` (`1` = AC meter responded on the bus this read, `0` = no response / fault),
+    `u8 error_code` (meter driver error code, `0` = OK; non-zero = the failure reason). Read-only /
+    no side effects; complements READ_METER (0x23) as the quick "is the meter alive?" probe.
+  - `XCOM_CMD_TEST_SET_PWM` (**0x47**) — request `xcom_test_set_pwm_t` (3 B) =
+    `u8 connector_id, u16 duty_permille` (0..1000 = 0.0..100.0 %, LE); response **ACK only**. The
+    **write** counterpart of READ_PWM (0x21): SET_PWM writes the same `duty_permille` that READ_PWM
+    reads. **NACK** when the connector has no CP (not a `TYPE2` connector) or the duty is out of range.
+    Because TEST_MODE suspends the charging state machine, a set duty **persists until changed or test
+    mode is exited**.
+- New C symbols: structs `xcom_test_meter_status_t` (2 B) and `xcom_test_set_pwm_t` (3 B).
+- Python binding: `XcomTestModeCmd.METER_STATUS` / `SET_PWM`, helper
+  `unpack_test_meter_status(data) -> {'connected': bool, 'error_code': int}` and
+  `pack_test_set_pwm(connector_id, duty_permille) -> bytes`.
+- Spec §7.8 documents both commands, their request/response layouts, and the SET_PWM NACK conditions;
+  §12 version-history row added.
+
+### Notes
+- **Additive / backward-compatible** — no existing command IDs or struct layouts changed. Wire-format
+  `XCOM_PROTOCOL_VERSION` stays **2**. Applied to the C header (both MCU copies, byte-identical), the
+  Python binding, and the spec.
+- **Rebuild scope:** control-card adds the 0x46/0x47 TEST_MODE handlers (firmware TODO, not in this
+  change); the PC test GUI/core gain meter-health + set-PWM controls. The **ESP8266 does not implement
+  device 0x08** — only its submodule pointer moves, no code change.
+
 ## [2.8.0] — 2026-06-13
 
 ### Changed
