@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.10.0] — 2026-06-13
+
+### Added
+- Add TEST_MODE EEPROM_STATUS (0x48) command + xcom_test_eeprom_status_t.
+  - `XCOM_CMD_TEST_EEPROM_STATUS` (**0x48**) — **empty request**; response `xcom_test_eeprom_status_t`
+    (2 B) = `u8 connected` (`1` = EEPROM responded on the I2C bus this read, `0` = no response /
+    not present), `u8 error_code` (EEPROM driver error code, `0` = OK; non-zero = the failure reason;
+    `0xFF` = not present / feature off). Read-only / no side effects; mirrors METER_STATUS (0x46) as
+    the quick "is the EEPROM alive?" probe for the EEPROM peripheral.
+- New C symbol: struct `xcom_test_eeprom_status_t` (2 B).
+- Python binding: `XcomTestModeCmd.EEPROM_STATUS`, helper
+  `unpack_test_eeprom_status(data) -> {'connected': bool, 'error_code': int}`.
+- Additive; wire version stays **2** (`XCOM_PROTOCOL_VERSION`).
+
 ## [2.9.0] — 2026-06-13
 
 ### Added

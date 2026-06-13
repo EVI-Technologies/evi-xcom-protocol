@@ -351,6 +351,8 @@ class XcomTestModeCmd(IntEnum):
     METER_STATUS      = 0x46  # AC meter connected/health check
     # Writes (test mode only)
     SET_PWM           = 0x47  # write CP pilot PWM duty (counterpart of READ_PWM)
+    # EEPROM health probe (read-only, no side effects)
+    EEPROM_STATUS     = 0x48  # EEPROM connected/health check
     # Self-test
     SELFTEST_RUN      = 0x50
 
@@ -944,6 +946,20 @@ def unpack_test_meter_status(data: bytes) -> dict:
     """
     if len(data) < 2:
         raise ValueError("meter status payload too short")
+    connected, error_code = struct.unpack_from('<BB', data, 0)
+    return {'connected': bool(connected), 'error_code': error_code}
+
+
+def unpack_test_eeprom_status(data: bytes) -> dict:
+    """Unpack xcom_test_eeprom_status_t (2 bytes) for TEST_MODE.EEPROM_STATUS.
+
+    Wire layout: u8 connected, u8 error_code.
+    connected: 1 = EEPROM responded on the I2C bus, 0 = no response / not present.
+    error_code: 0 = OK, non-zero = failure reason, 0xFF = not present / feature off.
+    Returns {'connected': bool, 'error_code': int}.
+    """
+    if len(data) < 2:
+        raise ValueError("eeprom status payload too short")
     connected, error_code = struct.unpack_from('<BB', data, 0)
     return {'connected': bool(connected), 'error_code': error_code}
 

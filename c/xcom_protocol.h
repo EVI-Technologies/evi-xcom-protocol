@@ -571,6 +571,9 @@ typedef enum
     /* Writes (test mode only) */
     XCOM_CMD_TEST_SET_PWM           = 0x47, /**< Write CP pilot PWM duty for a connector (req xcom_test_set_pwm_t; ACK only) */
 
+    /* EEPROM health probe (read-only, no side effects) */
+    XCOM_CMD_TEST_EEPROM_STATUS     = 0x48, /**< EEPROM connected/health check (empty req → xcom_test_eeprom_status_t) */
+
     /* Self-test */
     XCOM_CMD_TEST_SELFTEST_RUN      = 0x50, /**< Firmware-assisted self-test (xcom_test_selftest_t) */
 
@@ -932,6 +935,20 @@ typedef struct __attribute__((packed))
     uint8_t  connector_id;  /**< 0-based connector; must be a TYPE2 connector (has a CP) */
     uint16_t duty_permille; /**< PWM duty 0..1000 (= 0.0..100.0 %) */
 } xcom_test_set_pwm_t;  /* 1+2 = 3 bytes */
+
+/**
+ * @brief Return data for XCOM_CMD_TEST_EEPROM_STATUS (2 bytes, after ACK).
+ *
+ * Quick EEPROM connected/health probe: the charger performs one access on the
+ * I2C bus and reports whether the EEPROM answered plus the driver error code.
+ * Request is empty; read-only / no side effects; answerable while test mode is
+ * active. Mirrors METER_STATUS (0x46) for the EEPROM peripheral.
+ */
+typedef struct __attribute__((packed))
+{
+    uint8_t connected;  /**< 1 = EEPROM responded on the I2C bus this read, 0 = no response / not present */
+    uint8_t error_code; /**< EEPROM driver error code (0 = OK); non-zero = the failure reason; 0xFF = not present / feature off */
+} xcom_test_eeprom_status_t;  /* 2 bytes */
 
 /**
  * @brief Return data for XCOM_CMD_TEST_SELFTEST_RUN (after ACK).

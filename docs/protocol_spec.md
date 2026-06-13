@@ -1,6 +1,6 @@
 # XCOM Binary Protocol Specification
 
-Version: **2** (`XCOM_PROTOCOL_VERSION = 2`) · library **v2.9.0**  
+Version: **2** (`XCOM_PROTOCOL_VERSION = 2`) · library **v2.10.0**  
 Last updated: 2026-06-13
 
 ---
@@ -312,6 +312,7 @@ means the connector index is carried in the **frame `connector_id` field**, not 
 | 0x45 | SD_INFO | none | `xcom_test_sd_info_t` = `u8 mounted, u8 reserved, u32 total_kb, u32 free_kb` (10 B) |
 | 0x46 | METER_STATUS | none | `xcom_test_meter_status_t` = `u8 connected, u8 error_code` (2 B) |
 | 0x47 | SET_PWM | `xcom_test_set_pwm_t` = `u8 connector_id, u16 duty_permille` (0..1000) | none (ACK only) |
+| 0x48 | EEPROM_STATUS | none | `xcom_test_eeprom_status_t` = `u8 connected, u8 error_code` (2 B) |
 | 0x50 | SELFTEST_RUN | none | `xcom_test_selftest_t` = `u8 overall, u8 result[14]` (15 B) |
 
 **`xcom_test_meter_t` (38 bytes)** — full per-connector meter value set, mirroring the control card's
@@ -440,6 +441,13 @@ Because **TEST_MODE suspends the charging state machine**, a duty set via SET_PW
 is changed by another SET_PWM (or READ-modified) or until test mode is **exited** (or the unit reboots),
 at which point normal SM-driven pilot control resumes.
 
+**EEPROM_STATUS (0x48)** is a read-only EEPROM connected/health probe (no side effects; answerable
+while test mode is active). Request is **empty**. The charger performs one access on the I2C bus and
+returns `xcom_test_eeprom_status_t` (2 B) after the ACK byte: `u8 connected` (`1` = the EEPROM
+responded on the I2C bus this read, `0` = no response / not present), `u8 error_code` (the EEPROM
+driver error code, `0` = OK; non-zero encodes the failure reason; `0xFF` = not present / feature off).
+It mirrors **METER_STATUS (0x46)** for the EEPROM peripheral — the quick "is the EEPROM alive?" check.
+
 **SELFTEST_RUN** is a thin firmware-assisted trigger: the charger quickly checks each **present**
 peripheral and returns an `overall` verdict plus a `result[14]` array indexed 1:1 with the `XCOM_TPER_*`
 bit positions (`SKIP` where the bit is clear). `overall` is `PASS` only if every present peripheral
@@ -525,3 +533,4 @@ Example: GSM + WiFi only unit → `comm_modes = 0x05` (XCOM_COMM_WIFI | XCOM_COM
 | 2 (lib v2.7.0) | TEST_MODE read-only info ops STORAGE_INFO (0x44) — EEPROM total + per-block reserved/used/element counts from the compile-time block map; SD_INFO (0x45) — SD mounted + total/free KiB via FatFs `f_getfree()` (§7.8) |
 | 2 (lib v2.8.0) | **Breaking layout change** to `xcom_test_meter_t` (READ_METER 0x23): 14 B V/I/energy → **38 B full meter readout** (V, I, P, Q, S, PF, freq, neutral I, active+reactive energy) as scaled ints; wire version stays 2 but firmware + tool must rebuild together (§7.8) |
 | 2 (lib v2.9.0) | TEST_MODE METER_STATUS (0x46) — AC meter connected/health check (empty req → `u8 connected, u8 error_code`); SET_PWM (0x47) — write CP pilot PWM duty per connector (`u8 connector_id, u16 duty_permille`, ACK only; NACK on no-CP/out-of-range), the write counterpart of READ_PWM (0x21). Additive; wire version stays 2 (§7.8) |
+| 2 (lib v2.10.0) | TEST_MODE EEPROM_STATUS (0x48) — EEPROM connected/health check (empty req → `u8 connected, u8 error_code`; `error_code` 0xFF = not present / feature off), mirroring METER_STATUS (0x46) for the EEPROM peripheral. Additive; wire version stays 2 (§7.8) |
