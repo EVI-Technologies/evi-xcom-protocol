@@ -268,7 +268,7 @@ Notes:
   can stall; the client should not retry a partially-applied `WRITE` blindly (use `TELL`/`SIZE` to
   resync).
 
-### 7.8 TEST_MODE — PC production/bench test mode (device_type = 0x08, v2.5.0; PARAM ops v2.6.0)
+### 7.8 TEST_MODE — PC production/bench test mode (device_type = 0x08, v2.5.0; PARAM ops v2.6.0; STORAGE/SD info v2.7.0)
 
 A PC Python tool drives the charger control card (APM32) over XCOM on the **fixed production UART**
 to exercise every peripheral during manufacturing and bench bring-up. The **PC is always the client**;
@@ -308,6 +308,8 @@ means the connector index is carried in the **frame `connector_id` field**, not 
 | 0x41 | EEPROM_WRITE | `u16 addr` then `len` raw data bytes (len = dlc−2, ≤ 64) | none (ACK only) |
 | 0x42 | PARAM_READ | `xcom_test_param_req_t` = `u8 block_id, u8 element_id` | `xcom_test_param_t` = `u8 block_id, u8 element_id, u8 len, u8 data[len]` |
 | 0x43 | PARAM_WRITE | `xcom_test_param_t` = `u8 block_id, u8 element_id, u8 len` then `len` data bytes | none (ACK only) |
+| 0x44 | STORAGE_INFO | none | `xcom_test_storage_info_t` = `u16 total_size, u8 block_count, block_count × xcom_test_storage_block_t` |
+| 0x45 | SD_INFO | none | `xcom_test_sd_info_t` = `u8 mounted, u8 reserved, u32 total_kb, u32 free_kb` (10 B) |
 | 0x50 | SELFTEST_RUN | none | `xcom_test_selftest_t` = `u8 overall, u8 result[14]` (15 B) |
 
 **`xcom_test_caps_t` (32 bytes)** — the model-aware capability report. The PC tool reads this **once**
@@ -378,6 +380,23 @@ addresses.
   structs ≈ 97–113 B plus future padding). The absolute largest Block C element — the WebSocket URL
   string (`MAX_URL_LEN = 257`) — **exceeds this cap and is truncated to 128 bytes**; a full URL must use
   the raw EEPROM ops (0x40/0x41).
+
+**STORAGE_INFO / SD_INFO** are read-only informational queries (no side effects) that the PC tool uses
+to surface storage health during bench bring-up. Both take an **empty request** and are answerable while
+test mode is active.
+
+- **STORAGE_INFO (0x44)** — request **empty**. Response (after the ACK byte) is `xcom_test_storage_info_t`:
+  `u16 total_size` (`STORAGE_TOTAL_SIZE_ALLOWED`), `u8 block_count` (number of entries that follow, ≤5),
+  then `block_count` × `xcom_test_storage_block_t` (7 bytes each):
+  `u8 block_id` (`0=A … 4=E`), `u16 reserved_bytes` (the block's reserved EEPROM size),
+  `u16 used_bytes` (`END−START` actually laid out by its elements), `u8 elem_present`
+  (elements currently defined in the block), `u8 elem_allowed` (max element slots = the 32-bit
+  dirty-flag cap). **Derived entirely from the compile-time block-map constants** — no EEPROM is read.
+  Max payload after ACK = `2 + 1 + 5×7 = 38` bytes.
+- **SD_INFO (0x45)** — request **empty**. Response (after the ACK byte) is `xcom_test_sd_info_t` (10 B):
+  `u8 mounted` (`1` = SD mounted/usable, `0` = not present/unmounted), `u8 reserved` (pad, `0`),
+  `u32 total_kb`, `u32 free_kb` (capacities in KiB, `0` when not mounted). Derived from the on-board
+  **FatFs** volume via `f_getfree()`.
 
 **SELFTEST_RUN** is a thin firmware-assisted trigger: the charger quickly checks each **present**
 peripheral and returns an `overall` verdict plus a `result[14]` array indexed 1:1 with the `XCOM_TPER_*`
@@ -461,3 +480,4 @@ Example: GSM + WiFi only unit → `comm_modes = 0x05` (XCOM_COMM_WIFI | XCOM_COM
 | 2 (lib v2.4.0) | CHARGER_CONFIG QR_BASE_URL read/write (0x36/0x37) |
 | 2 (lib v2.5.0) | TEST_MODE (0x08) PC production/bench test mode — capabilities, actuators, reads, RFID, EEPROM, self-test (§7.8) |
 | 2 (lib v2.6.0) | TEST_MODE typed storage-element ops PARAM_READ (0x42) / PARAM_WRITE (0x43) — read/write one element by `(block_id, element_id)`, firmware resolves addr+size; `XCOM_TEST_PARAM_MAX_LEN = 128` (§7.8) |
+| 2 (lib v2.7.0) | TEST_MODE read-only info ops STORAGE_INFO (0x44) — EEPROM total + per-block reserved/used/element counts from the compile-time block map; SD_INFO (0x45) — SD mounted + total/free KiB via FatFs `f_getfree()` (§7.8) |

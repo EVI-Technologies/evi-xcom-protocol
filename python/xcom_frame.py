@@ -345,6 +345,9 @@ class XcomTestModeCmd(IntEnum):
     # Storage element (typed, by block_id + element_id; firmware resolves addr+size)
     PARAM_READ        = 0x42
     PARAM_WRITE       = 0x43
+    # Storage / SD info (read-only, no side effects)
+    STORAGE_INFO      = 0x44
+    SD_INFO           = 0x45
     # Self-test
     SELFTEST_RUN      = 0x50
 
@@ -850,6 +853,53 @@ def unpack_test_param(data: bytes) -> dict:
         'block_id': block_id,
         'element_id': element_id,
         'data': bytes(data[3:3 + length]),
+    }
+
+
+def unpack_test_storage_info(data: bytes) -> dict:
+    """Unpack xcom_test_storage_info_t return data for TEST_MODE.STORAGE_INFO.
+
+    Wire layout: u16 total_size (LE), u8 block_count, then `block_count`
+    7-byte xcom_test_storage_block_t entries
+    (u8 block_id, u16 reserved_bytes, u16 used_bytes, u8 elem_present,
+    u8 elem_allowed; all LE). Returns
+    {'total_size': int, 'blocks': [ {'block_id','reserved_bytes','used_bytes',
+    'elem_present','elem_allowed'}, ... ]}.
+    """
+    if len(data) < 3:
+        raise ValueError("storage_info payload too short")
+    total_size, block_count = struct.unpack_from('<HB', data, 0)
+    blocks = []
+    off = 3
+    for _ in range(block_count):
+        if off + 7 > len(data):
+            raise ValueError("storage_info truncated block entry")
+        block_id, reserved_bytes, used_bytes, elem_present, elem_allowed = \
+            struct.unpack_from('<BHHBB', data, off)
+        blocks.append({
+            'block_id': block_id,
+            'reserved_bytes': reserved_bytes,
+            'used_bytes': used_bytes,
+            'elem_present': elem_present,
+            'elem_allowed': elem_allowed,
+        })
+        off += 7
+    return {'total_size': total_size, 'blocks': blocks}
+
+
+def unpack_test_sd_info(data: bytes) -> dict:
+    """Unpack xcom_test_sd_info_t (10 bytes) return data for TEST_MODE.SD_INFO.
+
+    Wire layout: u8 mounted, u8 reserved, u32 total_kb (LE), u32 free_kb (LE).
+    Returns {'mounted': bool, 'total_kb': int, 'free_kb': int}.
+    """
+    if len(data) < 10:
+        raise ValueError("sd_info payload too short")
+    mounted, _reserved, total_kb, free_kb = struct.unpack_from('<BBII', data, 0)
+    return {
+        'mounted': bool(mounted),
+        'total_kb': total_kb,
+        'free_kb': free_kb,
     }
 
 

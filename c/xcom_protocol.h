@@ -563,6 +563,10 @@ typedef enum
     XCOM_CMD_TEST_PARAM_READ        = 0x42, /**< Read one storage element by block+element id (req xcom_test_param_req_t → resp xcom_test_param_t) */
     XCOM_CMD_TEST_PARAM_WRITE       = 0x43, /**< Write one storage element by block+element id (req xcom_test_param_t) */
 
+    /* Storage / SD info (read-only, no side effects) */
+    XCOM_CMD_TEST_STORAGE_INFO      = 0x44, /**< EEPROM usage: total size + per-block reserved/used/element counts (empty req → xcom_test_storage_info_t) */
+    XCOM_CMD_TEST_SD_INFO           = 0x45, /**< SD card status: mounted + total/free capacity (empty req → xcom_test_sd_info_t) */
+
     /* Self-test */
     XCOM_CMD_TEST_SELFTEST_RUN      = 0x50, /**< Firmware-assisted self-test (xcom_test_selftest_t) */
 
@@ -811,6 +815,62 @@ typedef struct __attribute__((packed))
     uint8_t len;                          /**< Valid bytes in data (1..XCOM_TEST_PARAM_MAX_LEN) */
     uint8_t data[XCOM_TEST_PARAM_MAX_LEN];/**< Element bytes; only `len` valid/transmitted */
 } xcom_test_param_t;
+
+/** @brief Max storage blocks reported by XCOM_CMD_TEST_STORAGE_INFO (blocks A..E). */
+#define XCOM_TEST_STORAGE_MAX_BLOCKS  5U
+
+/**
+ * @brief Per-block entry inside xcom_test_storage_info_t (7 bytes, packed).
+ *
+ * Each entry describes one control-card storage block (A..E) from the
+ * compile-time block map: how much EEPROM is reserved for it, how much is
+ * actually laid out by its elements, and how many element slots are used vs
+ * the 32-bit dirty-flag cap. Purely informational / read-only.
+ */
+typedef struct __attribute__((packed))
+{
+    uint8_t  block_id;       /**< 0=A,1=B,2=C,3=D,4=E */
+    uint16_t reserved_bytes; /**< Block's reserved EEPROM size (LE) */
+    uint16_t used_bytes;     /**< END-START actually laid out by elements (LE) */
+    uint8_t  elem_present;   /**< Elements currently defined in this block */
+    uint8_t  elem_allowed;   /**< Max element slots (32-bit dirty-flag cap) */
+} xcom_test_storage_block_t;  /* 1+2+2+1+1 = 7 bytes */
+
+/**
+ * @brief Return data for XCOM_CMD_TEST_STORAGE_INFO (after ACK).
+ *
+ * Derived entirely from the compile-time storage block-map constants
+ * (STORAGE_TOTAL_SIZE_ALLOWED + the per-block START/END/element tables); no
+ * EEPROM is read, so this is a pure read-only/no-side-effect query that is
+ * answerable while test mode is active. Wire layout:
+ *   [0..1] total_size (LE)
+ *   [2]    block_count (number of 7-byte entries that follow, ≤5)
+ *   [3..]  block_count × xcom_test_storage_block_t
+ * Only the first `block_count` entries of blocks[] are transmitted.
+ * Max size: 2 + 1 + 5*7 = 38 bytes.
+ */
+typedef struct __attribute__((packed))
+{
+    uint16_t total_size;     /**< STORAGE_TOTAL_SIZE_ALLOWED (LE) */
+    uint8_t  block_count;    /**< Number of block entries that follow (≤5) */
+    xcom_test_storage_block_t blocks[XCOM_TEST_STORAGE_MAX_BLOCKS];
+} xcom_test_storage_info_t;  /* 2+1+5*7 = 38 bytes (structural max) */
+
+/**
+ * @brief Return data for XCOM_CMD_TEST_SD_INFO (10 bytes, after ACK).
+ *
+ * Reflects the on-board FatFs SD volume queried via f_getfree(); capacities are
+ * in KiB. Read-only / no side effects; answerable while test mode is active.
+ * When the card is not present / not mounted, mounted = 0 and both capacity
+ * fields are 0.
+ */
+typedef struct __attribute__((packed))
+{
+    uint8_t  mounted;  /**< 1 = SD mounted/usable, 0 = not present/unmounted */
+    uint8_t  reserved; /**< Alignment / pad (0) */
+    uint32_t total_kb; /**< Total capacity in KiB (LE; 0 if not mounted) */
+    uint32_t free_kb;  /**< Free space in KiB (LE; 0 if not mounted) */
+} xcom_test_sd_info_t;  /* 1+1+4+4 = 10 bytes */
 
 /**
  * @brief Return data for XCOM_CMD_TEST_SELFTEST_RUN (after ACK).

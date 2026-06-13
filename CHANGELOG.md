@@ -1,5 +1,35 @@
 # Changelog
 
+## [2.7.0] — 2026-06-13
+
+### Added
+- **`TEST_MODE` read-only storage/SD info ops** (device 0x08) — two informational queries the PC tool
+  uses to surface control-card storage health during bench bring-up. Both take an **empty request** and
+  have **no side effects** (answerable while test mode is active). New commands (`xcom_test_mode_cmd_t`):
+  - `XCOM_CMD_TEST_STORAGE_INFO` (**0x44**) — empty request; response `xcom_test_storage_info_t` =
+    `u16 total_size, u8 block_count, block_count × xcom_test_storage_block_t`, where each 7-byte block is
+    `u8 block_id (0=A..4=E), u16 reserved_bytes, u16 used_bytes, u8 elem_present, u8 elem_allowed`.
+    Derived **entirely from the compile-time storage block-map constants** (`STORAGE_TOTAL_SIZE_ALLOWED`
+    + the per-block tables); no EEPROM is read. Max payload after ACK = `2 + 1 + 5×7 = 38` bytes.
+  - `XCOM_CMD_TEST_SD_INFO` (**0x45**) — empty request; response `xcom_test_sd_info_t` (10 B) =
+    `u8 mounted, u8 reserved, u32 total_kb, u32 free_kb` (KiB; 0 when not mounted). Derived from the
+    on-board FatFs volume via `f_getfree()`.
+- New C symbols: structs `xcom_test_storage_block_t` (7 B), `xcom_test_storage_info_t` (38 B max),
+  `xcom_test_sd_info_t` (10 B); define `XCOM_TEST_STORAGE_MAX_BLOCKS = 5`.
+- Python binding: `XcomTestModeCmd.STORAGE_INFO`/`SD_INFO`, and helpers
+  `unpack_test_storage_info(data) -> {'total_size', 'blocks': [...]}` and
+  `unpack_test_sd_info(data) -> {'mounted', 'total_kb', 'free_kb'}`. No pack helpers (both requests empty).
+- Spec §7.8 documents both commands, the empty requests, the exact response byte layouts, and that both
+  are read-only/no-side-effect (STORAGE_INFO from compile-time block-map constants, SD_INFO from FatFs).
+
+### Notes
+- Backward-compatible, additive only (new command IDs after PARAM 0x42/0x43; no wire-format change).
+  `XCOM_PROTOCOL_VERSION` stays **2**. Added to the C header (both MCU copies, byte-identical), the
+  Python binding, and the spec.
+- **Rebuild scope:** the **control-card** must rebuild against the new submodule and implement the two
+  info handlers (next stage). The **ESP8266 does not implement device 0x08**, so no ESP code change —
+  only its submodule pointer moves.
+
 ## [2.6.0] — 2026-06-13
 
 ### Added
