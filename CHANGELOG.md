@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.11.0] — 2026-06-13
+
+### Added
+- Add TEST_MODE DISPLAY_BACKLIGHT (0x49) command + XCOM_TPER_DISPLAY capability bit.
+  - `XCOM_CMD_TEST_DISPLAY_BACKLIGHT` (**0x49**) — request `xcom_test_display_backlight_t` (1 B) =
+    `u8 on` (`0` = backlight off, non-zero = backlight on); response **ACK only** (dlc = 0), mirroring
+    the other simple TEST_MODE writes (SET_RGB / SET_BUZZER / SET_RELAY). Lets an operator confirm the
+    DWIN/TFT graphical display lights up on Display-variant boards.
+  - `XCOM_TPER_DISPLAY` (**`(1UL << 14)`**, mask `0x4000`) — new peripheral-present capability bit in
+    the `xcom_test_caps_t.peripherals` bitmap: "DWIN/TFT graphical display present (vs LED-only HMI)".
+    It is the next bit above `XCOM_TPER_ESP_LINK` (bit 13). Bit 14 sits **outside** the fixed-size
+    `xcom_test_selftest_t.result[14]` array (`XCOM_TEST_SELFTEST_PERIPH_COUNT` stays **14**): the display
+    is verified manually via DISPLAY_BACKLIGHT, not by SELFTEST_RUN, so the 0x50 wire format is unchanged.
+- New C symbol: struct `xcom_test_display_backlight_t` (1 B); macro `XCOM_TPER_DISPLAY`.
+- Python binding: `XcomTestModeCmd.DISPLAY_BACKLIGHT`, constant `XCOM_TPER_DISPLAY`, label `"DISPLAY"`
+  appended to `XCOM_TPER_LABELS`, and helper `pack_test_display_backlight(on: bool) -> bytes` (1 B).
+- Additive; wire version stays **2** (`XCOM_PROTOCOL_VERSION`).
+
 ## [2.10.0] — 2026-06-13
 
 ### Added

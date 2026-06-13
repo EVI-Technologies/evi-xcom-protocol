@@ -353,6 +353,8 @@ class XcomTestModeCmd(IntEnum):
     SET_PWM           = 0x47  # write CP pilot PWM duty (counterpart of READ_PWM)
     # EEPROM health probe (read-only, no side effects)
     EEPROM_STATUS     = 0x48  # EEPROM connected/health check
+    # Display / HMI actuation (ACK only)
+    DISPLAY_BACKLIGHT = 0x49  # toggle DWIN/TFT display backlight on/off
     # Self-test
     SELFTEST_RUN      = 0x50
 
@@ -375,12 +377,17 @@ XCOM_TPER_GUN_SENSE = (1 << 10)
 XCOM_TPER_CP        = (1 << 11)
 XCOM_TPER_PWM       = (1 << 12)
 XCOM_TPER_ESP_LINK  = (1 << 13)
+XCOM_TPER_DISPLAY   = (1 << 14)  # DWIN/TFT graphical display present (vs LED-only HMI)
 
 # Bit position -> label, for rendering a per-variant menu with zero per-variant code.
-# Index matches the XCOM_TPER_* bit AND the xcom_test_selftest_t.result[] index.
+# Index matches the XCOM_TPER_* bit. NOTE: the first XCOM_TEST_SELFTEST_PERIPH_COUNT
+# (14) entries also index xcom_test_selftest_t.result[]; DISPLAY (bit 14) is outside
+# that fixed-size selftest array (display is verified manually via DISPLAY_BACKLIGHT,
+# not by SELFTEST_RUN), so adding it does not change the 0x50 wire format.
 XCOM_TPER_LABELS = [
     "RGB_LED", "BUZZER", "RELAY", "RFID", "EEPROM", "NTC", "METER",
     "RCD", "ESTOP", "GND_FAULT", "GUN_SENSE", "CP", "PWM", "ESP_LINK",
+    "DISPLAY",
 ]
 XCOM_TEST_SELFTEST_PERIPH_COUNT = 14
 
@@ -717,7 +724,7 @@ def unpack_test_capabilities(data: bytes) -> dict:
         raise ValueError(f"capabilities payload too short: {len(data)}")
     fields = struct.unpack_from('<BB4BBBI20s', data)
     peripherals = fields[8]
-    present = [XCOM_TPER_LABELS[i] for i in range(XCOM_TEST_SELFTEST_PERIPH_COUNT)
+    present = [XCOM_TPER_LABELS[i] for i in range(len(XCOM_TPER_LABELS))
               if peripherals & (1 << i)]
     return {
         'struct_version':  fields[0],
@@ -975,6 +982,16 @@ def pack_test_set_pwm(connector_id: int, duty_permille: int) -> bytes:
     if not (0 <= duty_permille <= 1000):
         raise ValueError("duty_permille must be 0..1000")
     return struct.pack('<BH', connector_id, duty_permille)
+
+
+def pack_test_display_backlight(on: bool) -> bytes:
+    """Payload for TEST_MODE.DISPLAY_BACKLIGHT (xcom_test_display_backlight_t, 1 byte).
+
+    Drives the DWIN/TFT display backlight so an operator can confirm the
+    graphical display lights up. Wire layout: u8 on (0 = off, non-zero = on).
+    Response is an ACK with no payload, like SET_RGB / SET_BUZZER / SET_RELAY.
+    """
+    return struct.pack('<B', 1 if on else 0)
 
 
 def unpack_test_selftest(data: bytes) -> dict:

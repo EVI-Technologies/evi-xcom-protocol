@@ -574,6 +574,9 @@ typedef enum
     /* EEPROM health probe (read-only, no side effects) */
     XCOM_CMD_TEST_EEPROM_STATUS     = 0x48, /**< EEPROM connected/health check (empty req → xcom_test_eeprom_status_t) */
 
+    /* Display / HMI actuation */
+    XCOM_CMD_TEST_DISPLAY_BACKLIGHT = 0x49, /**< Toggle DWIN/TFT display backlight (req xcom_test_display_backlight_t; ACK only) */
+
     /* Self-test */
     XCOM_CMD_TEST_SELFTEST_RUN      = 0x50, /**< Firmware-assisted self-test (xcom_test_selftest_t) */
 
@@ -607,6 +610,7 @@ typedef enum
 #define XCOM_TPER_CP           (1UL << 11) /**< IEC 61851 CP (control pilot) present */
 #define XCOM_TPER_PWM          (1UL << 12) /**< CP PWM generator present */
 #define XCOM_TPER_ESP_LINK     (1UL << 13) /**< ESP8266 connectivity link present */
+#define XCOM_TPER_DISPLAY      (1UL << 14) /**< DWIN/TFT graphical display present (vs LED-only HMI) */
 
 /** @brief CP pilot state codes (xcom_test_cp_t.pilot_state).
  *  Mirrors IEC 61851 states A..F by their canonical letters. */
@@ -949,6 +953,18 @@ typedef struct __attribute__((packed))
     uint8_t connected;  /**< 1 = EEPROM responded on the I2C bus this read, 0 = no response / not present */
     uint8_t error_code; /**< EEPROM driver error code (0 = OK); non-zero = the failure reason; 0xFF = not present / feature off */
 } xcom_test_eeprom_status_t;  /* 2 bytes */
+
+/**
+ * @brief Request payload for XCOM_CMD_TEST_DISPLAY_BACKLIGHT (1 byte).
+ *
+ * Simple write to drive the DWIN/TFT display backlight on or off so an
+ * operator can confirm the graphical display lights up. Response is an
+ * ACK with no payload (dlc = 0), mirroring SET_RGB / SET_BUZZER / SET_RELAY.
+ */
+typedef struct __attribute__((packed))
+{
+    uint8_t on; /**< 0 = backlight off, non-zero = backlight on */
+} xcom_test_display_backlight_t;  /* 1 byte */
 
 /**
  * @brief Return data for XCOM_CMD_TEST_SELFTEST_RUN (after ACK).
