@@ -1,5 +1,35 @@
 # Changelog
 
+## [2.6.0] — 2026-06-13
+
+### Added
+- **`TEST_MODE` typed storage-element ops** (device 0x08) — read/write one control-card storage element
+  **by `(block_id, element_id)`** instead of a raw EEPROM address. The firmware resolves the EEPROM
+  address + size from the storage map (blocks A–E, `STORAGE_BlockX_Elements_t` + `_ADD`/size), so the PC
+  tool never hard-codes addresses. Backs the new GUI EEPROM parameter editor. New commands
+  (`xcom_test_mode_cmd_t`):
+  - `XCOM_CMD_TEST_PARAM_READ` (**0x42**) — request `xcom_test_param_req_t` = `u8 block_id, u8 element_id`;
+    response `xcom_test_param_t` = `u8 block_id, u8 element_id, u8 len, u8 data[len]`.
+  - `XCOM_CMD_TEST_PARAM_WRITE` (**0x43**) — request `xcom_test_param_t` = `u8 block_id, u8 element_id,
+    u8 len` then `len` data bytes; ACK only. A bad block/element id, or a `len` mismatch vs the resolved
+    element size, ⇒ NACK.
+- New C symbols: structs `xcom_test_param_req_t`, `xcom_test_param_t`; define
+  `XCOM_TEST_PARAM_MAX_LEN = 128` (covers the credential structs ≈ 97–113 B + future padding; the 257 B
+  WebSocket URL `MAX_URL_LEN` exceeds the cap and is **truncated** — use raw EEPROM ops 0x40/0x41 for it).
+- Python binding: `XcomTestModeCmd.PARAM_READ`/`PARAM_WRITE`, `XCOM_TEST_PARAM_MAX_LEN`, and helpers
+  `pack_test_param_read(block_id, element_id)`, `pack_test_param_write(block_id, element_id, data)`,
+  `unpack_test_param(data) -> {'block_id','element_id','data'}`.
+- Spec §7.8 documents both commands, the exact byte layouts, the firmware-resolves-addr/size contract,
+  the NACK conditions, and the max-length cap.
+
+### Notes
+- Backward-compatible, additive only (new command IDs after EEPROM 0x40/0x41; no wire-format change).
+  `XCOM_PROTOCOL_VERSION` stays **2**. Added to the C header (both MCU copies, byte-identical), the
+  Python binding, and the spec.
+- **Rebuild scope:** the **control-card** must rebuild against the new submodule and implement the two
+  PARAM handlers (next stage). The **ESP8266 does not implement device 0x08**, so no ESP code change —
+  only its submodule pointer moves. The PC GUI editor is a separate next stage.
+
 ## [2.5.0] — 2026-06-10
 
 ### Added

@@ -339,9 +339,12 @@ class XcomTestModeCmd(IntEnum):
     GET_ESP_LINK      = 0x25
     # RFID
     RFID_POLL         = 0x30
-    # EEPROM
+    # EEPROM (raw, by absolute byte address)
     EEPROM_READ       = 0x40
     EEPROM_WRITE      = 0x41
+    # Storage element (typed, by block_id + element_id; firmware resolves addr+size)
+    PARAM_READ        = 0x42
+    PARAM_WRITE       = 0x43
     # Self-test
     SELFTEST_RUN      = 0x50
 
@@ -383,6 +386,9 @@ def XCOM_TDIN_GUN(conn: int) -> int:
 
 XCOM_TEST_RFID_UID_MAX   = 10
 XCOM_TEST_EEPROM_MAX_LEN = 64
+# Max bytes per storage element in PARAM_READ/PARAM_WRITE. Covers the largest
+# realistic credential element; the 257 B WebSocket URL is truncated to 128 B.
+XCOM_TEST_PARAM_MAX_LEN  = 128
 
 
 class XcomTestCpState(IntEnum):
@@ -811,6 +817,40 @@ def pack_test_eeprom_write(addr: int, payload: bytes) -> bytes:
 def unpack_test_eeprom_read(data: bytes) -> bytes:
     """Return data for TEST_MODE.EEPROM_READ — the raw bytes read."""
     return bytes(data)
+
+
+def pack_test_param_read(block_id: int, element_id: int) -> bytes:
+    """Payload for TEST_MODE.PARAM_READ (xcom_test_param_req_t, 2 bytes).
+
+    The firmware resolves the EEPROM address + size from (block_id, element_id).
+    """
+    return struct.pack('<BB', block_id & 0xFF, element_id & 0xFF)
+
+
+def pack_test_param_write(block_id: int, element_id: int, data: bytes) -> bytes:
+    """Payload for TEST_MODE.PARAM_WRITE (xcom_test_param_t).
+
+    Wire layout: u8 block_id, u8 element_id, u8 len, then `len` data bytes.
+    """
+    if not (1 <= len(data) <= XCOM_TEST_PARAM_MAX_LEN):
+        raise ValueError("param write length out of range")
+    return struct.pack('<BBB', block_id & 0xFF, element_id & 0xFF, len(data)) + bytes(data)
+
+
+def unpack_test_param(data: bytes) -> dict:
+    """Unpack xcom_test_param_t return data for TEST_MODE.PARAM_READ.
+
+    Wire layout: u8 block_id, u8 element_id, u8 len, then `len` data bytes.
+    Returns {'block_id', 'element_id', 'data': bytes} (data sliced to `len`).
+    """
+    if len(data) < 3:
+        raise ValueError("param payload too short")
+    block_id, element_id, length = data[0], data[1], data[2]
+    return {
+        'block_id': block_id,
+        'element_id': element_id,
+        'data': bytes(data[3:3 + length]),
+    }
 
 
 def unpack_test_selftest(data: bytes) -> dict:

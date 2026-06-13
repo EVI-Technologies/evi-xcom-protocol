@@ -1,7 +1,7 @@
 # XCOM Binary Protocol Specification
 
-Version: **2** (`XCOM_PROTOCOL_VERSION = 2`) · library **v2.5.0**  
-Last updated: 2026-06-10
+Version: **2** (`XCOM_PROTOCOL_VERSION = 2`) · library **v2.6.0**  
+Last updated: 2026-06-13
 
 ---
 
@@ -268,7 +268,7 @@ Notes:
   can stall; the client should not retry a partially-applied `WRITE` blindly (use `TELL`/`SIZE` to
   resync).
 
-### 7.8 TEST_MODE — PC production/bench test mode (device_type = 0x08, v2.5.0)
+### 7.8 TEST_MODE — PC production/bench test mode (device_type = 0x08, v2.5.0; PARAM ops v2.6.0)
 
 A PC Python tool drives the charger control card (APM32) over XCOM on the **fixed production UART**
 to exercise every peripheral during manufacturing and bench bring-up. The **PC is always the client**;
@@ -306,6 +306,8 @@ means the connector index is carried in the **frame `connector_id` field**, not 
 | 0x30 | RFID_POLL | none | `xcom_test_rfid_t` = `u8 uid_len, u8 uid[10]` (uid_len=0 ⇒ no card) |
 | 0x40 | EEPROM_READ | `xcom_test_eeprom_rd_req_t` = `u16 addr, u8 len` (len ≤ 64) | `len` raw bytes |
 | 0x41 | EEPROM_WRITE | `u16 addr` then `len` raw data bytes (len = dlc−2, ≤ 64) | none (ACK only) |
+| 0x42 | PARAM_READ | `xcom_test_param_req_t` = `u8 block_id, u8 element_id` | `xcom_test_param_t` = `u8 block_id, u8 element_id, u8 len, u8 data[len]` |
+| 0x43 | PARAM_WRITE | `xcom_test_param_t` = `u8 block_id, u8 element_id, u8 len` then `len` data bytes | none (ACK only) |
 | 0x50 | SELFTEST_RUN | none | `xcom_test_selftest_t` = `u8 overall, u8 result[14]` (15 B) |
 
 **`xcom_test_caps_t` (32 bytes)** — the model-aware capability report. The PC tool reads this **once**
@@ -358,6 +360,24 @@ Offset  Size  Field              Description
   `3=D` (+3 V, vent), `4=E` (0 V, error), `5=F` (−12 V, EVSE off), `0xFF`=unknown.
 - `pattern` (`xcom_test_buzzer_pattern_t`): `0=OFF`, `1=ON` (steady), `2=BEEP`, `3=CHIRP`.
 - `xcom_test_result_t`: `0=PASS`, `1=FAIL`, `2=SKIP` (not present), `0xFF`=unknown.
+
+**PARAM_READ / PARAM_WRITE** are the typed, element-addressed equivalent of the raw EEPROM ops. The PC
+tool addresses a storage element by **`(block_id, element_id)`** and the **firmware resolves the EEPROM
+byte address + size** from the control-card storage map (blocks A–E in `storage_block_map.h`, each with a
+`STORAGE_BlockX_Elements_t` enum and computed `_ADD`/size). The PC tool therefore never hard-codes EEPROM
+addresses.
+
+- **PARAM_READ (0x42)** — request `u8 block_id, u8 element_id`. Response (after the ACK byte):
+  `u8 block_id` (echo), `u8 element_id` (echo), `u8 len`, then `len` data bytes (the element's raw value).
+  `len` is the element's known size, capped at `XCOM_TEST_PARAM_MAX_LEN`.
+- **PARAM_WRITE (0x43)** — request `u8 block_id, u8 element_id, u8 len`, then `len` data bytes
+  (`len = dlc−3`). Response is ACK only.
+- A **bad block/element id** (out of range) ⇒ **NACK**. On PARAM_WRITE a **`len` mismatch** against the
+  element's resolved size ⇒ **NACK**.
+- `XCOM_TEST_PARAM_MAX_LEN = 128`. This covers the largest *realistic* single element (the credential
+  structs ≈ 97–113 B plus future padding). The absolute largest Block C element — the WebSocket URL
+  string (`MAX_URL_LEN = 257`) — **exceeds this cap and is truncated to 128 bytes**; a full URL must use
+  the raw EEPROM ops (0x40/0x41).
 
 **SELFTEST_RUN** is a thin firmware-assisted trigger: the charger quickly checks each **present**
 peripheral and returns an `overall` verdict plus a `result[14]` array indexed 1:1 with the `XCOM_TPER_*`
@@ -440,3 +460,4 @@ Example: GSM + WiFi only unit → `comm_modes = 0x05` (XCOM_COMM_WIFI | XCOM_COM
 | 2 (lib v2.3.0) | `XCOM_BUFFER_SIZE` 5000→1280; FILE_HANDLING WRITE/READ chunks ≤1024 B |
 | 2 (lib v2.4.0) | CHARGER_CONFIG QR_BASE_URL read/write (0x36/0x37) |
 | 2 (lib v2.5.0) | TEST_MODE (0x08) PC production/bench test mode — capabilities, actuators, reads, RFID, EEPROM, self-test (§7.8) |
+| 2 (lib v2.6.0) | TEST_MODE typed storage-element ops PARAM_READ (0x42) / PARAM_WRITE (0x43) — read/write one element by `(block_id, element_id)`, firmware resolves addr+size; `XCOM_TEST_PARAM_MAX_LEN = 128` (§7.8) |

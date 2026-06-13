@@ -555,9 +555,13 @@ typedef enum
     /* RFID */
     XCOM_CMD_TEST_RFID_POLL         = 0x30, /**< Poll for a presented card UID (xcom_test_rfid_t) */
 
-    /* EEPROM */
+    /* EEPROM (raw, by absolute byte address) */
     XCOM_CMD_TEST_EEPROM_READ       = 0x40, /**< Read EEPROM bytes (req xcom_test_eeprom_rd_req_t) */
     XCOM_CMD_TEST_EEPROM_WRITE      = 0x41, /**< Write EEPROM bytes (req xcom_test_eeprom_wr_req_t) */
+
+    /* Storage element (typed, by block_id + element_id; firmware resolves addr+size) */
+    XCOM_CMD_TEST_PARAM_READ        = 0x42, /**< Read one storage element by block+element id (req xcom_test_param_req_t → resp xcom_test_param_t) */
+    XCOM_CMD_TEST_PARAM_WRITE       = 0x43, /**< Write one storage element by block+element id (req xcom_test_param_t) */
 
     /* Self-test */
     XCOM_CMD_TEST_SELFTEST_RUN      = 0x50, /**< Firmware-assisted self-test (xcom_test_selftest_t) */
@@ -763,6 +767,50 @@ typedef struct __attribute__((packed))
 } xcom_test_eeprom_wr_req_t;
 
 #define XCOM_TEST_EEPROM_MAX_LEN  64U /**< Max bytes per EEPROM read/write op */
+
+/**
+ * @brief Max bytes carried for a single storage element in PARAM_READ/PARAM_WRITE.
+ *
+ * Sized to cover the largest *realistic* control-card credential element
+ * (the ESP local-server credential struct ≈ 113 B, Wi-Fi creds ≈ 97 B, plus the
+ * per-struct future-padding reserve) while staying well inside the XCOM frame
+ * budget. The absolute largest Block C element — the WebSocket URL string
+ * (MAX_URL_LEN = 257 B) — exceeds this cap and is therefore **truncated** to
+ * the first 128 bytes on the wire; a full URL read/write must be done in raw
+ * EEPROM ops (0x40/0x41) or with a future chunked variant. The firmware NACKs a
+ * PARAM_WRITE whose `len` does not match the element's known size.
+ */
+#define XCOM_TEST_PARAM_MAX_LEN  128U /**< Max bytes per storage element (larger elements truncated) */
+
+/** @brief Request payload for XCOM_CMD_TEST_PARAM_READ (2 bytes).
+ *  The firmware resolves the EEPROM address + size from (block_id, element_id);
+ *  a bad block/element id is NACKed. */
+typedef struct __attribute__((packed))
+{
+    uint8_t block_id;   /**< Storage block id (A..E per storage_block_map.h) */
+    uint8_t element_id; /**< Element id within the block (STORAGE_BlockX_Elements_t) */
+} xcom_test_param_req_t;
+
+/** @brief Response for XCOM_CMD_TEST_PARAM_READ and request for XCOM_CMD_TEST_PARAM_WRITE.
+ *
+ *  Variable-length tail (same convention as the EEPROM ops). Wire layout:
+ *    [0] block_id
+ *    [1] element_id
+ *    [2] len          (number of valid bytes in `data`, 1..XCOM_TEST_PARAM_MAX_LEN)
+ *    [3..3+len-1] data (the element's raw bytes; len = dlc-3 on the wire)
+ *
+ *  On PARAM_READ the firmware fills block_id/element_id (echo), len = element
+ *  size (capped at XCOM_TEST_PARAM_MAX_LEN), then `len` data bytes. On
+ *  PARAM_WRITE the PC supplies all four; the firmware NACKs if `len` does not
+ *  match the resolved element size. The `data[]` array is the structural max;
+ *  only `len` bytes are transmitted. */
+typedef struct __attribute__((packed))
+{
+    uint8_t block_id;                     /**< Storage block id (A..E) */
+    uint8_t element_id;                   /**< Element id within the block */
+    uint8_t len;                          /**< Valid bytes in data (1..XCOM_TEST_PARAM_MAX_LEN) */
+    uint8_t data[XCOM_TEST_PARAM_MAX_LEN];/**< Element bytes; only `len` valid/transmitted */
+} xcom_test_param_t;
 
 /**
  * @brief Return data for XCOM_CMD_TEST_SELFTEST_RUN (after ACK).
