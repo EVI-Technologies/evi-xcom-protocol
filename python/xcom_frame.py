@@ -764,12 +764,42 @@ def unpack_test_ntc(data: bytes) -> dict:
 
 
 def unpack_test_meter(data: bytes) -> dict:
-    """Unpack xcom_test_meter_t (14 bytes) from return data."""
-    if len(data) < 14:
+    """Unpack xcom_test_meter_t (38 bytes) from return data.
+
+    Decodes the full per-connector meter value set back to natural units.
+    'phase' is the echoed 1-based meter index (connector_id + 1); the GUI
+    shows it as "Connector N".
+
+    Returns keys (natural units, floats unless noted):
+      'phase'                  int   1-based meter index
+      'voltage'                V
+      'current'                A
+      'active_power'           W
+      'reactive_power'         VAR
+      'apparent_power'         VA
+      'power_factor'           -1.0 .. +1.0
+      'frequency'              Hz
+      'neutral_current'        A
+      'active_energy_kwh'      kWh
+      'reactive_energy_kvarh'  kVARh
+    """
+    if len(data) < 38:
         raise ValueError("meter read payload too short")
-    phase, v_mv, i_ma, e_wh, _ = struct.unpack_from('<BIIIB', data)
-    return {'phase': phase, 'voltage_mv': v_mv, 'current_ma': i_ma,
-            'active_energy_wh': e_wh}
+    (phase, _reserved, v_mv, i_ma, p_mw, q_mvar, s_mva,
+     pf_x1000, f_mhz, in_ma, e_wh, e_varh) = struct.unpack_from('<BBIIiiihHIII', data)
+    return {
+        'phase':                 phase,
+        'voltage':               v_mv / 1000.0,
+        'current':               i_ma / 1000.0,
+        'active_power':          p_mw / 1000.0,
+        'reactive_power':        q_mvar / 1000.0,
+        'apparent_power':        s_mva / 1000.0,
+        'power_factor':          pf_x1000 / 1000.0,
+        'frequency':             f_mhz / 1000.0,
+        'neutral_current':       in_ma / 1000.0,
+        'active_energy_kwh':     e_wh / 1000.0,
+        'reactive_energy_kvarh': e_varh / 1000.0,
+    }
 
 
 def unpack_test_digital_inputs(data: bytes) -> dict:

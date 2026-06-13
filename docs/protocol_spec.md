@@ -268,7 +268,7 @@ Notes:
   can stall; the client should not retry a partially-applied `WRITE` blindly (use `TELL`/`SIZE` to
   resync).
 
-### 7.8 TEST_MODE — PC production/bench test mode (device_type = 0x08, v2.5.0; PARAM ops v2.6.0; STORAGE/SD info v2.7.0)
+### 7.8 TEST_MODE — PC production/bench test mode (device_type = 0x08, v2.5.0; PARAM ops v2.6.0; STORAGE/SD info v2.7.0; full meter readout v2.8.0)
 
 A PC Python tool drives the charger control card (APM32) over XCOM on the **fixed production UART**
 to exercise every peripheral during manufacturing and bench bring-up. The **PC is always the client**;
@@ -300,7 +300,7 @@ means the connector index is carried in the **frame `connector_id` field**, not 
 | 0x20 | READ_CP | conn (frame) | `xcom_test_cp_t` = `i16 mv, u8 pilot_state, u8 rsv` |
 | 0x21 | READ_PWM | conn (frame) | `xcom_test_pwm_t` = `u16 duty_permille` (0..1000) |
 | 0x22 | READ_NTC | `u8 sensor_idx` | `xcom_test_ntc_t` = `u8 sensor_idx, i16 temp_c_x10` |
-| 0x23 | READ_METER | `u8 phase` | `xcom_test_meter_t` = `u8 phase, u32 voltage_mv, u32 current_ma, u32 active_energy_wh, u8 rsv` (14 B) |
+| 0x23 | READ_METER | `u8 phase` (1-based meter = connector_id+1) | `xcom_test_meter_t` — full meter readout (38 B; see below) |
 | 0x24 | READ_DIGITAL_IN | none | `xcom_test_dinputs_t` = `u32 inputs` bitmap |
 | 0x25 | GET_ESP_LINK | none | `xcom_test_esp_link_t` = `u8 present, u8 alive` |
 | 0x30 | RFID_POLL | none | `xcom_test_rfid_t` = `u8 uid_len, u8 uid[10]` (uid_len=0 ⇒ no card) |
@@ -311,6 +311,28 @@ means the connector index is carried in the **frame `connector_id` field**, not 
 | 0x44 | STORAGE_INFO | none | `xcom_test_storage_info_t` = `u16 total_size, u8 block_count, block_count × xcom_test_storage_block_t` |
 | 0x45 | SD_INFO | none | `xcom_test_sd_info_t` = `u8 mounted, u8 reserved, u32 total_kb, u32 free_kb` (10 B) |
 | 0x50 | SELFTEST_RUN | none | `xcom_test_selftest_t` = `u8 overall, u8 result[14]` (15 B) |
+
+**`xcom_test_meter_t` (38 bytes)** — full per-connector meter value set, mirroring the control card's
+`AC_MeterData_t`, as scaled fixed-point little-endian integers. The **request** is a single `u8 phase`
+= the **1-based** meter index (`connector_id + 1`); it is echoed back in `phase`. The PC GUI labels it
+as **"Connector N"**. All values decode to natural units by dividing by the scale shown.
+
+```
+Offset  Size  Field                  Type   Scaling                 Natural unit
+──────  ────  ─────────────────────  ─────  ──────────────────────  ────────────
+  0      1    phase                  u8     —                       echoed 1-based meter index
+  1      1    reserved               u8     —                       pad (0)
+  2      4    voltage_mv             u32    V    × 1000              Volts
+  6      4    current_ma             u32    A    × 1000              Amps
+ 10      4    active_power_mw        i32    W    × 1000 (signed)     Watts
+ 14      4    reactive_power_mvar    i32    VAR  × 1000 (signed)     VAR
+ 18      4    apparent_power_mva     i32    VA   × 1000 (signed)     VA
+ 22      2    power_factor_x1000     i16    PF   × 1000 (-1000..1000) –1.0 .. +1.0
+ 24      2    frequency_mhz          u16    Hz   × 1000              Hz (50000 = 50.000)
+ 26      4    neutral_current_ma     u32    A    × 1000              Amps
+ 30      4    active_energy_wh       u32    Wh   (= kWh   × 1000)    kWh
+ 34      4    reactive_energy_varh   u32    VARh (= kVARh × 1000)    kVARh
+```
 
 **`xcom_test_caps_t` (32 bytes)** — the model-aware capability report. The PC tool reads this **once**
 and renders a per-variant menu **with zero per-variant code**: it shows only the commands whose
@@ -481,3 +503,4 @@ Example: GSM + WiFi only unit → `comm_modes = 0x05` (XCOM_COMM_WIFI | XCOM_COM
 | 2 (lib v2.5.0) | TEST_MODE (0x08) PC production/bench test mode — capabilities, actuators, reads, RFID, EEPROM, self-test (§7.8) |
 | 2 (lib v2.6.0) | TEST_MODE typed storage-element ops PARAM_READ (0x42) / PARAM_WRITE (0x43) — read/write one element by `(block_id, element_id)`, firmware resolves addr+size; `XCOM_TEST_PARAM_MAX_LEN = 128` (§7.8) |
 | 2 (lib v2.7.0) | TEST_MODE read-only info ops STORAGE_INFO (0x44) — EEPROM total + per-block reserved/used/element counts from the compile-time block map; SD_INFO (0x45) — SD mounted + total/free KiB via FatFs `f_getfree()` (§7.8) |
+| 2 (lib v2.8.0) | **Breaking layout change** to `xcom_test_meter_t` (READ_METER 0x23): 14 B V/I/energy → **38 B full meter readout** (V, I, P, Q, S, PF, freq, neutral I, active+reactive energy) as scaled ints; wire version stays 2 but firmware + tool must rebuild together (§7.8) |

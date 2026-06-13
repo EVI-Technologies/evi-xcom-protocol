@@ -1,5 +1,43 @@
 # Changelog
 
+## [2.8.0] — 2026-06-13
+
+### Changed
+- **`TEST_MODE` READ_METER (0x23) now carries the FULL per-connector meter value set** instead of
+  just V / I / energy. `xcom_test_meter_t` is **redefined** to mirror the control card's
+  `AC_MeterData_t` as scaled fixed-point little-endian integers. **Response grows 14 B → 38 B.**
+  New layout (offset, size, scaling):
+  - `0  u8  phase`               — echoed 1-based meter index (`connector_id + 1`; GUI shows "Connector N")
+  - `1  u8  reserved`            — pad (0)
+  - `2  u32 voltage_mv`          — V × 1000
+  - `6  u32 current_ma`          — A × 1000
+  - `10 i32 active_power_mw`     — W × 1000 (signed)
+  - `14 i32 reactive_power_mvar` — VAR × 1000 (signed)
+  - `18 i32 apparent_power_mva`  — VA × 1000 (signed)
+  - `22 i16 power_factor_x1000`  — PF × 1000 (−1000..+1000)
+  - `24 u16 frequency_mhz`       — Hz × 1000 (50000 = 50.000 Hz)
+  - `26 u32 neutral_current_ma`  — A × 1000
+  - `30 u32 active_energy_wh`    — Wh (= kWh × 1000); meaning unchanged
+  - `34 u32 reactive_energy_varh`— VARh (= kVARh × 1000)
+  - Request is **unchanged**: a single `u8 phase` = 1-based meter index.
+  - Command comment updated "V/I/energy" → "full meter readout".
+- Python binding: `unpack_test_meter(data)` now returns **all fields in natural units** (floats):
+  `{'phase', 'voltage', 'current', 'active_power', 'reactive_power', 'apparent_power',
+  'power_factor', 'frequency', 'neutral_current', 'active_energy_kwh', 'reactive_energy_kvarh'}`.
+  **Key change:** previous `'voltage_mv' / 'current_ma' / 'active_energy_wh'` (raw scaled ints) are
+  replaced by natural-unit float keys — GUI/core readers must update field names accordingly.
+- Spec §7.8 updated: new `xcom_test_meter_t` byte-layout table; READ_METER row notes the 38 B response.
+
+### Notes
+- **Breaking change to `xcom_test_meter_t` layout** (struct-changed, not purely additive): the
+  **control-card TEST_MODE meter handler** and the **PC test GUI/core** must update **together**.
+  No new command IDs; only the 0x23 response struct changed.
+- Wire-format `XCOM_PROTOCOL_VERSION` stays **2**. Applied to the C header (both MCU copies,
+  byte-identical), the Python binding, and the spec.
+- **Rebuild scope:** control-card rebuilds against the new submodule and widens its meter handler;
+  Python tools regenerate. The **ESP8266 does not implement device 0x08** — only its submodule
+  pointer moves, no code change.
+
 ## [2.7.0] — 2026-06-13
 
 ### Added

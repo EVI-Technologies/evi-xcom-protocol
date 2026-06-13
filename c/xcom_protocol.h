@@ -548,7 +548,7 @@ typedef enum
     XCOM_CMD_TEST_READ_CP           = 0x20, /**< Read CP pilot mV + pilot state (xcom_test_cp_t) */
     XCOM_CMD_TEST_READ_PWM          = 0x21, /**< Read CP PWM duty (xcom_test_pwm_t) */
     XCOM_CMD_TEST_READ_NTC          = 0x22, /**< Read one NTC temperature sensor (xcom_test_ntc_t) */
-    XCOM_CMD_TEST_READ_METER        = 0x23, /**< Read meter V/I/energy (xcom_test_meter_t) */
+    XCOM_CMD_TEST_READ_METER        = 0x23, /**< Read full meter readout (xcom_test_meter_t) */
     XCOM_CMD_TEST_READ_DIGITAL_IN   = 0x24, /**< Read digital-input bitmap (xcom_test_dinputs_t) */
     XCOM_CMD_TEST_GET_ESP_LINK      = 0x25, /**< ESP8266 link present/alive (xcom_test_esp_link_t) */
 
@@ -722,15 +722,42 @@ typedef struct __attribute__((packed))
     int16_t temp_c_x10;  /**< Temperature in 0.1 °C steps (e.g. 253 = 25.3 °C) */
 } xcom_test_ntc_t;
 
-/** @brief Return data for XCOM_CMD_TEST_READ_METER (14 bytes, after ACK).
- *  Request: 1-byte connector/phase index in the payload. */
+/** @brief Return data for XCOM_CMD_TEST_READ_METER (38 bytes, after ACK).
+ *  Full per-connector meter value set as scaled fixed-point integers, matching
+ *  AC_MeterData_t on the control card. All multi-byte fields are little-endian.
+ *
+ *  Request: 1-byte phase index in the payload = 1-based meter index
+ *           (connector_id + 1). The GUI displays it as "Connector N".
+ *
+ *  Byte layout (packed, total 38 B):
+ *    off  size  field                  scaling
+ *      0   1    phase                  echoed 1-based meter index
+ *      1   1    reserved               pad (0)
+ *      2   4    voltage_mv             V    * 1000
+ *      6   4    current_ma             A    * 1000
+ *     10   4    active_power_mw        W    * 1000   (signed)
+ *     14   4    reactive_power_mvar    VAR  * 1000   (signed)
+ *     18   4    apparent_power_mva     VA   * 1000   (signed)
+ *     22   2    power_factor_x1000     PF   * 1000   (-1000..+1000)
+ *     24   2    frequency_mhz          Hz   * 1000   (50000 = 50.000 Hz)
+ *     26   4    neutral_current_ma     A    * 1000
+ *     30   4    active_energy_wh       Wh           (= kWh   * 1000)
+ *     34   4    reactive_energy_varh   VARh         (= kVARh * 1000)
+ */
 typedef struct __attribute__((packed))
 {
-    uint8_t  phase;            /**< Echoed connector/phase index */
-    uint32_t voltage_mv;       /**< RMS voltage in mV */
-    uint32_t current_ma;       /**< RMS current in mA */
-    uint32_t active_energy_wh; /**< Cumulative active energy in Wh */
-    uint8_t  reserved;         /**< Pad (0) */
+    uint8_t  phase;                /**< Echoed request index (1-based meter / connector_id+1) */
+    uint8_t  reserved;             /**< Pad (0) */
+    uint32_t voltage_mv;           /**< RMS voltage:        V    * 1000 */
+    uint32_t current_ma;           /**< RMS current:        A    * 1000 */
+    int32_t  active_power_mw;      /**< Active power:       W    * 1000 (signed, normally >=0) */
+    int32_t  reactive_power_mvar;  /**< Reactive power:     VAR  * 1000 (signed) */
+    int32_t  apparent_power_mva;   /**< Apparent power:     VA   * 1000 (signed) */
+    int16_t  power_factor_x1000;   /**< Power factor:       PF   * 1000 (-1000..+1000) */
+    uint16_t frequency_mhz;        /**< Line frequency:     Hz   * 1000 (50000 = 50.000 Hz) */
+    uint32_t neutral_current_ma;   /**< Neutral current:    A    * 1000 */
+    uint32_t active_energy_wh;     /**< Active energy:      Wh   (= kWh   * 1000) */
+    uint32_t reactive_energy_varh; /**< Reactive energy:    VARh (= kVARh * 1000) */
 } xcom_test_meter_t;
 
 /** @brief Return data for XCOM_CMD_TEST_READ_DIGITAL_IN (4 bytes, after ACK). */
