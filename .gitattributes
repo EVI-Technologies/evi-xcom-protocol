@@ -1,0 +1,3 @@
+# Normalize line endings: store text as LF, check out as LF on every OS.
+# Prevents CRLF churn when the repo is touched from Windows.
+* text=auto eol=lf
