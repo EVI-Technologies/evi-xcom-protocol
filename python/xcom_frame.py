@@ -350,6 +350,7 @@ class XcomTestModeCmd(IntEnum):
     SET_RGB           = 0x10
     SET_BUZZER        = 0x11
     SET_RELAY         = 0x12
+    SET_BATTERY_RELAY = 0x13  # backup-battery charge/discharge relay (XCOM_TPER_BATTERY)
     # Reads (test mode only)
     READ_CP           = 0x20
     READ_PWM          = 0x21
@@ -357,6 +358,7 @@ class XcomTestModeCmd(IntEnum):
     READ_METER        = 0x23
     READ_DIGITAL_IN   = 0x24
     GET_ESP_LINK      = 0x25
+    READ_BATTERY      = 0x26  # backup-battery voltage in mV (XCOM_TPER_BATTERY)
     # RFID
     RFID_POLL         = 0x30
     # EEPROM (raw, by absolute byte address)
@@ -417,6 +419,13 @@ XCOM_TEST_SELFTEST_PERIPH_COUNT = 14
 # SELFTEST_RUN (0x50) wire format is unchanged.
 XCOM_TPER_RCD_PERSOCKET = (1 << 15)
 
+# Backup-battery monitor/charge present on this model. When set,
+# XCOM_CMD_TEST_SET_BATTERY_RELAY (0x13) and XCOM_CMD_TEST_READ_BATTERY (0x26)
+# are meaningful (dual-gun and Bharat AC001; the e-rickshaw shares the board
+# section but leaves the battery pins NC -> bit clear). Bit 16 is outside the
+# result[14] selftest array, so SELFTEST_RUN (0x50) wire format is unchanged.
+XCOM_TPER_BATTERY = (1 << 16)
+
 # Digital-input bitmap (xcom_test_dinputs_t.inputs)
 XCOM_TDIN_ESTOP     = (1 << 0)
 XCOM_TDIN_RCD       = (1 << 1)
@@ -455,6 +464,12 @@ class XcomTestBuzzerPattern(IntEnum):
     ON    = 0x01
     BEEP  = 0x02
     CHIRP = 0x03
+
+
+class XcomTestBatteryRelayWhich(IntEnum):
+    """xcom_test_battery_relay_which_t — backup-battery relay selector."""
+    CHARGE    = 0x00  # charge relay (charger -> battery)
+    DISCHARGE = 0x01  # discharge relay (battery -> load/backup rail)
 
 
 class XcomTestResult(IntEnum):
@@ -785,6 +800,15 @@ def pack_test_relay(connector: int, on: int) -> bytes:
     return struct.pack('<BB', connector, 1 if on else 0)
 
 
+def pack_test_battery_relay(which: int, on: int) -> bytes:
+    """Payload for TEST_MODE.SET_BATTERY_RELAY (xcom_test_battery_relay_t, 2 bytes).
+
+    `which` = XcomTestBatteryRelayWhich (0 = charge relay, 1 = discharge relay).
+    Charger-wide (no connector id); only valid where XCOM_TPER_BATTERY is set.
+    """
+    return struct.pack('<BB', int(which), 1 if on else 0)
+
+
 def unpack_test_cp(data: bytes) -> dict:
     """Unpack xcom_test_cp_t (4 bytes) from return data."""
     if len(data) < 4:
@@ -866,6 +890,17 @@ def unpack_test_esp_link(data: bytes) -> dict:
     if len(data) < 2:
         raise ValueError("ESP link payload too short")
     return {'present': bool(data[0]), 'alive': bool(data[1])}
+
+
+def unpack_test_battery(data: bytes) -> dict:
+    """Unpack xcom_test_battery_t (2 bytes) from return data.
+
+    Backup battery is charger-wide (single sensor). `mv` = voltage in millivolts.
+    """
+    if len(data) < 2:
+        raise ValueError("battery read payload too short")
+    (mv,) = struct.unpack_from('<H', data)
+    return {'mv': mv}
 
 
 def unpack_test_rfid(data: bytes) -> dict:

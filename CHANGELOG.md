@@ -1,5 +1,35 @@
 # Changelog
 
+## [2.15.0] — 2026-06-20
+
+### Added
+- **TEST_MODE backup-battery support** (additive, backward-compatible) — lets the bench test GUI
+  test the backup battery on the variants that have it (**dual-gun**, **Bharat AC001**). The
+  **e-rickshaw** shares the same board section but leaves the battery pins NC, so its capability bit
+  stays clear and the GUI hides these controls with zero per-variant code.
+  - New capability bit `XCOM_TPER_BATTERY` (**bit 16**, mask `0x10000`) in
+    `xcom_test_caps_t.peripherals` — "backup battery monitor/charge present on this model".
+  - New command `XCOM_CMD_TEST_SET_BATTERY_RELAY` (**0x13**) — drive a backup-battery relay.
+    Req `xcom_test_battery_relay_t` (packed, **2 B**) = `{ u8 which, u8 on }`, where `which` is
+    `xcom_test_battery_relay_which_t` (`XCOM_BATT_RELAY_CHARGE=0`, `XCOM_BATT_RELAY_DISCHARGE=1`)
+    and `on` (1=energise, 0=de-energise). ACK only. Charger-wide (no connector id).
+  - New command `XCOM_CMD_TEST_READ_BATTERY` (**0x26**) — read backup-battery voltage.
+    Resp `xcom_test_battery_t` (packed, **2 B**) = `{ u16 mv }` (millivolts; range ~10000..12560
+    fits `u16`). Charger-wide single sensor — no connector id.
+  - Python: `XCOM_TPER_BATTERY`, `XcomTestModeCmd.SET_BATTERY_RELAY`/`READ_BATTERY`,
+    `XcomTestBatteryRelayWhich`, `pack_test_battery_relay()`, `unpack_test_battery()`.
+
+### Notes
+- **Backward-compatible at the wire level**; wire version stays **2** (`XCOM_PROTOCOL_VERSION`).
+  Bit 16 is outside the `xcom_test_selftest_t.result[14]` array, so `SELFTEST_RUN` (0x50) is unchanged.
+- The READ id is **0x26** (not 0x25): 0x25 is already `GET_ESP_LINK`, so 0x26 is the next free READ
+  id. The SET id is **0x13**, the next free SET id after `SET_RELAY` (0x12).
+- Step **1 of 3**: control-card TEST_MODE server (handle 0x13/0x26, advertise the caps bit on the
+  battery-capable variants) and the bench-test GUI controls follow separately.
+- C: Doxygen on the new caps bit, two command enum values, relay-which enum, and two packed structs
+  in `c/xcom_protocol.h`. Python: constants + (un)pack helpers in `python/xcom_frame.py`. Spec:
+  §7.8 command + caps-bitmap table rows + §12 change-log row in `docs/protocol_spec.md`.
+
 ## [2.14.0] — 2026-06-20
 
 ### Added

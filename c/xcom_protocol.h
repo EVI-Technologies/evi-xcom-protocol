@@ -563,6 +563,7 @@ typedef enum
     XCOM_CMD_TEST_SET_RGB           = 0x10, /**< Drive an RGB LED (xcom_test_rgb_t) */
     XCOM_CMD_TEST_SET_BUZZER        = 0x11, /**< Drive the buzzer (xcom_test_buzzer_t) */
     XCOM_CMD_TEST_SET_RELAY         = 0x12, /**< Drive a contactor/relay (xcom_test_relay_t) */
+    XCOM_CMD_TEST_SET_BATTERY_RELAY = 0x13, /**< Drive a backup-battery charge/discharge relay (xcom_test_battery_relay_t); ACK only. Only valid where XCOM_TPER_BATTERY is set */
 
     /* Reads (test mode only) */
     XCOM_CMD_TEST_READ_CP           = 0x20, /**< Read CP pilot mV + pilot state (xcom_test_cp_t) */
@@ -571,6 +572,7 @@ typedef enum
     XCOM_CMD_TEST_READ_METER        = 0x23, /**< Read full meter readout (xcom_test_meter_t) */
     XCOM_CMD_TEST_READ_DIGITAL_IN   = 0x24, /**< Read digital-input bitmap (xcom_test_dinputs_t) */
     XCOM_CMD_TEST_GET_ESP_LINK      = 0x25, /**< ESP8266 link present/alive (xcom_test_esp_link_t) */
+    XCOM_CMD_TEST_READ_BATTERY      = 0x26, /**< Read backup-battery voltage in mV (xcom_test_battery_t). Charger-wide single sensor — no connector id. Only valid where XCOM_TPER_BATTERY is set */
 
     /* RFID */
     XCOM_CMD_TEST_RFID_POLL         = 0x30, /**< Poll for a presented card UID (xcom_test_rfid_t) */
@@ -637,6 +639,13 @@ typedef enum
                                              *   already taken in this peripheral bitmap (8=ESTOP). Bit 15
                                              *   is outside the result[14] selftest array, so SELFTEST_RUN
                                              *   (0x50) wire format is unchanged. */
+#define XCOM_TPER_BATTERY      (1UL << 16) /**< Backup-battery monitor/charge present on this model.
+                                             *   When set, XCOM_CMD_TEST_SET_BATTERY_RELAY (0x13) and
+                                             *   XCOM_CMD_TEST_READ_BATTERY (0x26) are meaningful (dual-gun
+                                             *   and Bharat AC001; the e-rickshaw shares the board section
+                                             *   but leaves the battery pins NC → bit clear). Bit 16 is
+                                             *   outside the result[14] selftest array, so SELFTEST_RUN
+                                             *   (0x50) wire format is unchanged. */
 
 /** @brief CP pilot state codes (xcom_test_cp_t.pilot_state).
  *  Mirrors IEC 61851 states A..F by their canonical letters. */
@@ -659,6 +668,13 @@ typedef enum
     XCOM_TEST_BUZZER_BEEP  = 0x02, /**< Short beep pattern for duration_ms */
     XCOM_TEST_BUZZER_CHIRP = 0x03  /**< Repeated chirp for duration_ms */
 } xcom_test_buzzer_pattern_t;
+
+/** @brief Backup-battery relay selector (xcom_test_battery_relay_t.which). */
+typedef enum
+{
+    XCOM_BATT_RELAY_CHARGE    = 0x00, /**< Charge relay (connects charger → battery) */
+    XCOM_BATT_RELAY_DISCHARGE = 0x01  /**< Discharge relay (connects battery → load/backup rail) */
+} xcom_test_battery_relay_which_t;
 
 /* -------------------------------------------------------------------------
  * Digital-input bitmap (xcom_test_dinputs_t.inputs, 32-bit LE).
@@ -741,6 +757,15 @@ typedef struct __attribute__((packed))
     uint8_t on;        /**< 1 = energise relay, 0 = de-energise */
 } xcom_test_relay_t;
 
+/** @brief Request payload for XCOM_CMD_TEST_SET_BATTERY_RELAY (2 bytes).
+ *  Drives one of the backup-battery relays. Charger-wide (no connector id).
+ *  Only valid on models with XCOM_TPER_BATTERY set. ACK only. */
+typedef struct __attribute__((packed))
+{
+    uint8_t which; /**< xcom_test_battery_relay_which_t: 0 = charge relay, 1 = discharge relay */
+    uint8_t on;    /**< 1 = energise relay, 0 = de-energise */
+} xcom_test_battery_relay_t;
+
 /** @brief Return data for XCOM_CMD_TEST_READ_CP (4 bytes, after ACK).
  *  Request carries the connector index in the frame connector_id field. */
 typedef struct __attribute__((packed))
@@ -815,6 +840,14 @@ typedef struct __attribute__((packed))
     uint8_t present; /**< 1 = ESP8266 link hardware present */
     uint8_t alive;   /**< 1 = a recent XCOM frame was seen from the ESP8266 */
 } xcom_test_esp_link_t;
+
+/** @brief Return data for XCOM_CMD_TEST_READ_BATTERY (2 bytes, after ACK).
+ *  Backup battery is charger-wide (single sensor) — no connector id. Typical
+ *  range ~10000..12560 mV fits uint16_t. */
+typedef struct __attribute__((packed))
+{
+    uint16_t mv; /**< Backup-battery voltage in millivolts, little-endian */
+} xcom_test_battery_t;
 
 /** @brief Return data for XCOM_CMD_TEST_RFID_POLL (after ACK).
  *  uid_len = 0 means no card present. Max UID = 10 bytes (ISO 14443 triple). */

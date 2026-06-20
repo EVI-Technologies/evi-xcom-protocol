@@ -1,7 +1,7 @@
 # XCOM Binary Protocol Specification
 
-Version: **2** (`XCOM_PROTOCOL_VERSION = 2`) · library **v2.14.0**  
-Last updated: 2026-06-13
+Version: **2** (`XCOM_PROTOCOL_VERSION = 2`) · library **v2.15.0**  
+Last updated: 2026-06-20
 
 ---
 
@@ -300,12 +300,14 @@ means the connector index is carried in the **frame `connector_id` field**, not 
 | 0x10 | SET_RGB | `xcom_test_rgb_t` = `u8 connector, u8 r, u8 g, u8 b` | none (ACK only) |
 | 0x11 | SET_BUZZER | `xcom_test_buzzer_t` = `u8 pattern, u16 duration_ms` | none (ACK only) |
 | 0x12 | SET_RELAY | `xcom_test_relay_t` = `u8 connector, u8 on` | none (ACK only) |
+| 0x13 | SET_BATTERY_RELAY | `xcom_test_battery_relay_t` = `u8 which, u8 on` (`which`: 0=charge, 1=discharge relay; `on`: 1=energise) | none (ACK only) — only valid where `XCOM_TPER_BATTERY` is set |
 | 0x20 | READ_CP | conn (frame) | `xcom_test_cp_t` = `i16 mv, u8 pilot_state, u8 rsv` |
 | 0x21 | READ_PWM | conn (frame) | `xcom_test_pwm_t` = `u16 duty_permille` (0..1000) |
 | 0x22 | READ_NTC | `u8 sensor_idx` | `xcom_test_ntc_t` = `u8 sensor_idx, i16 temp_c_x10` |
 | 0x23 | READ_METER | `u8 phase` (1-based meter = connector_id+1) | `xcom_test_meter_t` — full meter readout (38 B; see below) |
 | 0x24 | READ_DIGITAL_IN | none | `xcom_test_dinputs_t` = `u32 inputs` bitmap |
 | 0x25 | GET_ESP_LINK | none | `xcom_test_esp_link_t` = `u8 present, u8 alive` |
+| 0x26 | READ_BATTERY | none | `xcom_test_battery_t` = `u16 mv` (backup-battery voltage, charger-wide single sensor) — only valid where `XCOM_TPER_BATTERY` is set |
 | 0x30 | RFID_POLL | none | `xcom_test_rfid_t` = `u8 uid_len, u8 uid[10]` (uid_len=0 ⇒ no card) |
 | 0x40 | EEPROM_READ | `xcom_test_eeprom_rd_req_t` = `u16 addr, u8 len` (len ≤ 64) | `len` raw bytes |
 | 0x41 | EEPROM_WRITE | `u16 addr` then `len` raw data bytes (len = dlc−2, ≤ 64) | none (ACK only) |
@@ -378,6 +380,7 @@ Offset  Size  Field              Description
 | 13 | 0x2000 | ESP_LINK | ESP8266 connectivity link |
 | 14 | 0x4000 | DISPLAY | DWIN/TFT graphical display (vs LED-only HMI) — outside the `result[14]` selftest array |
 | 15 | 0x8000 | RCD_PERSOCKET | RCD is per-connector (one RCD per socket) on this model — when set, each socket's live RCD is in `XCOM_TDIN_RCD_CONN(conn)`. Outside the `result[14]` selftest array. |
+| 16 | 0x10000 | BATTERY | Backup-battery monitor/charge present (dual-gun, Bharat AC001; e-rickshaw leaves the battery pins NC → bit clear). When set, SET_BATTERY_RELAY (0x13) and READ_BATTERY (0x26) are meaningful. Outside the `result[14]` selftest array. |
 
 **Digital-input bitmap** (`xcom_test_dinputs_t.inputs`) — a bit reads 1 when the input is **asserted**:
 
@@ -591,3 +594,4 @@ Example: GSM + WiFi only unit → `comm_modes = 0x05` (XCOM_COMM_WIFI | XCOM_COM
 | 2 (lib v2.12.0) | TEST_MODE DISPLAY_BACKLIGHT (0x49) **replaced** by DISPLAY_STATUS (0x49) — DWIN/HMI display connected/health probe (empty req → `u8 connected, u8 error_code`; `error_code` 0xFF = not present / feature off), identical layout to METER_STATUS (0x46) / EEPROM_STATUS (0x48). Capability bit `XCOM_TPER_DISPLAY` (bit 14, mask 0x4000) unchanged. Additive; wire version stays 2 (§7.8) |
 | 2 (lib v2.13.0) | TEST_MODE per-connector RCD: new capability bit `XCOM_TPER_RCD_PERSOCKET` (**bit 15**, mask 0x8000) in `xcom_test_caps_t.peripherals` flags per-socket-RCD models; new DIN macro `XCOM_TDIN_RCD_CONN(conn)` (**bits 8..11**, conn 0..3) carries each socket's live RCD in `xcom_test_dinputs_t.inputs`. The aggregate `XCOM_TDIN_RCD` (bit 1) is retained as the OR of all sockets. Both new bits are outside the `result[14]` selftest array, so SELFTEST_RUN (0x50) is unchanged. Additive; wire version stays 2 (§7.8) |
 | 2 (lib v2.14.0) | **Connector-indexed error readout**: the three CHARGER_INFO error commands — CHARGER_DECODED_ERROR_CODE_STR (0x08), CHARGER_ERROR_CODE (0x0C), CHARGER_HIGHEST_PRIORITY_ERROR_CODE (0x11) — now honour the frame `connector_id` field: `0` = charger-wide (legacy/backward-compatible, `ErrorManager_GetChargerWide()`), `1..N` = that 1-based OCPP connector (`ErrorManager_GetConnectorFaults(connector_id-1)`). No new command IDs/structs; wire payloads and `VENDOR_CODE_*`/UR12-16 values unchanged. Enables per-connectorId OCPP StatusNotification. Additive; wire version stays 2 (§7.9) |
+| 2 (lib v2.15.0) | **TEST_MODE backup-battery support** (bench test of the backup battery on variants that have it — dual-gun, Bharat AC001; the e-rickshaw shares the board section but leaves the battery pins NC). New capability bit `XCOM_TPER_BATTERY` (**bit 16**, mask 0x10000) in `xcom_test_caps_t.peripherals`. New command **SET_BATTERY_RELAY (0x13)** — req `xcom_test_battery_relay_t` = `u8 which, u8 on` (`which`: 0=charge, 1=discharge relay per `xcom_test_battery_relay_which_t`; `on`: 1=energise), ACK only. New command **READ_BATTERY (0x26)** — resp `xcom_test_battery_t` = `u16 mv` (charger-wide single sensor, no connector id). Bit 16 is outside the `result[14]` selftest array, so SELFTEST_RUN (0x50) is unchanged. Additive; wire version stays 2 (§7.8) |
