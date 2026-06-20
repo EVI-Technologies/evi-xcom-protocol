@@ -391,10 +391,23 @@ XCOM_TPER_LABELS = [
 ]
 XCOM_TEST_SELFTEST_PERIPH_COUNT = 14
 
+# RCD is per-connector (one RCD per socket) on this model. NOTE: bit 15 (not bit 8) —
+# bits 8..14 are already taken in this peripheral bitmap (8=ESTOP). Bit 15 is outside
+# the result[14] selftest array (kept out of XCOM_TPER_LABELS for that reason), so
+# SELFTEST_RUN (0x50) wire format is unchanged.
+XCOM_TPER_RCD_PERSOCKET = (1 << 15)
+
 # Digital-input bitmap (xcom_test_dinputs_t.inputs)
 XCOM_TDIN_ESTOP     = (1 << 0)
 XCOM_TDIN_RCD       = (1 << 1)
 XCOM_TDIN_GND_FAULT = (1 << 2)
+def XCOM_TDIN_RCD_CONN(conn: int) -> int:
+    """Bit mask for per-connector RCD tripped on connector `conn` (0..3).
+
+    Set only on per-socket-RCD models (see XCOM_TPER_RCD_PERSOCKET), in addition
+    to the aggregate XCOM_TDIN_RCD (bit 1), which stays the OR of all sockets.
+    """
+    return (1 << (8 + conn))
 def XCOM_TDIN_GUN(conn: int) -> int:
     """Bit mask for gun-connected sense on connector `conn` (0..3)."""
     return (1 << (16 + conn))

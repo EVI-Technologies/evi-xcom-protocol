@@ -611,6 +611,12 @@ typedef enum
 #define XCOM_TPER_PWM          (1UL << 12) /**< CP PWM generator present */
 #define XCOM_TPER_ESP_LINK     (1UL << 13) /**< ESP8266 connectivity link present */
 #define XCOM_TPER_DISPLAY      (1UL << 14) /**< DWIN/TFT graphical display present (vs LED-only HMI) */
+#define XCOM_TPER_RCD_PERSOCKET (1UL << 15) /**< RCD is per-connector (one RCD per socket) on this model.
+                                             *   When set, XCOM_TDIN_RCD_CONN(conn) carries each socket's
+                                             *   live RCD status. NOTE: bit 15 (not bit 8) — bits 8..14 are
+                                             *   already taken in this peripheral bitmap (8=ESTOP). Bit 15
+                                             *   is outside the result[14] selftest array, so SELFTEST_RUN
+                                             *   (0x50) wire format is unchanged. */
 
 /** @brief CP pilot state codes (xcom_test_cp_t.pilot_state).
  *  Mirrors IEC 61851 states A..F by their canonical letters. */
@@ -636,14 +642,20 @@ typedef enum
 
 /* -------------------------------------------------------------------------
  * Digital-input bitmap (xcom_test_dinputs_t.inputs, 32-bit LE).
- * Global safety inputs in the low bits; per-connector gun-connected sense in
- * bits 16..19 (connector 0..3). A bit reads 1 when the input is ASSERTED
- * (E-stop pressed, RCD tripped, ground fault present, gun connected).
+ * Global safety inputs in the low bits; per-connector RCD in bits 8..11 and
+ * per-connector gun-connected sense in bits 16..19 (connector 0..3). A bit
+ * reads 1 when the input is ASSERTED (E-stop pressed, RCD tripped, ground
+ * fault present, gun connected).
  * ------------------------------------------------------------------------- */
 
 #define XCOM_TDIN_ESTOP        (1UL << 0)  /**< Emergency stop asserted */
 #define XCOM_TDIN_RCD          (1UL << 1)  /**< RCD tripped */
 #define XCOM_TDIN_GND_FAULT    (1UL << 2)  /**< Ground fault detected */
+#define XCOM_TDIN_RCD_CONN(conn) (1UL << (8U + (conn))) /**< Per-connector RCD tripped (conn 0..3); set
+                                                          *   only on per-socket-RCD models (see
+                                                          *   XCOM_TPER_RCD_PERSOCKET), in addition to the
+                                                          *   aggregate XCOM_TDIN_RCD. XCOM_TDIN_RCD (bit 1)
+                                                          *   stays the OR of all per-socket RCDs. */
 #define XCOM_TDIN_GUN(conn)    (1UL << (16U + (conn))) /**< Gun connected on connector (0..3) */
 
 /** @brief Self-test result codes (per-peripheral byte + overall). */

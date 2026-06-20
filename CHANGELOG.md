@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.13.0] — 2026-06-20
+
+### Added
+- TEST_MODE per-connector RCD support (additive, backward-compatible).
+  - `XCOM_TPER_RCD_PERSOCKET` — peripheral/caps bitmap bit (`xcom_test_caps_t.peripherals`),
+    **`(1UL << 15)`**, mask `0x8000`. Set when the model has one RCD per socket (e.g. dual-gun,
+    Bharat AC001). **NOTE:** placed at bit 15, **not** bit 8 as originally drafted — in this library's
+    peripheral bitmap bits 8..14 are already taken (8 = `XCOM_TPER_ESTOP`). Bit 15 is outside the
+    `result[14]` selftest array, so SELFTEST_RUN (0x50) wire format is unchanged.
+  - `XCOM_TDIN_RCD_CONN(conn)` — digital-input bitmap macro (`xcom_test_dinputs_t.inputs`),
+    **`(1UL << (8U + conn))`** for conn 0..3 (bits 8..11). Carries each socket's live RCD status on
+    per-socket-RCD models. Bits 8..11 were previously free (estop=0, rcd=1, gnd=2, gun=16+conn).
+
+### Notes
+- The aggregate `XCOM_TDIN_RCD` (bit 1) is **retained unchanged** for backward compatibility and is the
+  OR of all per-socket RCDs on per-socket-RCD models; on single-RCD models it remains the sole RCD bit
+  and `XCOM_TDIN_RCD_CONN` / `XCOM_TPER_RCD_PERSOCKET` are not used.
+- C: two new macros in `c/xcom_protocol.h`. Python: `XCOM_TPER_RCD_PERSOCKET` constant and
+  `XCOM_TDIN_RCD_CONN(conn)` function in `python/xcom_frame.py`. Spec: both documented in the
+  TEST_MODE peripheral and digital-input bitmap tables (§7.8).
+- Backward-compatible at the wire level; wire version stays **2** (`XCOM_PROTOCOL_VERSION`).
+
 ## [2.12.0] — 2026-06-13
 
 ### Changed

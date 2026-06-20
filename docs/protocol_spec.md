@@ -1,6 +1,6 @@
 # XCOM Binary Protocol Specification
 
-Version: **2** (`XCOM_PROTOCOL_VERSION = 2`) · library **v2.12.0**  
+Version: **2** (`XCOM_PROTOCOL_VERSION = 2`) · library **v2.13.0**  
 Last updated: 2026-06-13
 
 ---
@@ -374,14 +374,16 @@ Offset  Size  Field              Description
 | 12 | 0x1000 | PWM | CP PWM generator |
 | 13 | 0x2000 | ESP_LINK | ESP8266 connectivity link |
 | 14 | 0x4000 | DISPLAY | DWIN/TFT graphical display (vs LED-only HMI) — outside the `result[14]` selftest array |
+| 15 | 0x8000 | RCD_PERSOCKET | RCD is per-connector (one RCD per socket) on this model — when set, each socket's live RCD is in `XCOM_TDIN_RCD_CONN(conn)`. Outside the `result[14]` selftest array. |
 
 **Digital-input bitmap** (`xcom_test_dinputs_t.inputs`) — a bit reads 1 when the input is **asserted**:
 
 | Bit | Mask | XCOM_TDIN_* | Meaning |
 |-----|------|-------------|---------|
 | 0 | 0x0001 | ESTOP | Emergency stop pressed |
-| 1 | 0x0002 | RCD | RCD tripped |
+| 1 | 0x0002 | RCD | RCD tripped (aggregate; on per-socket-RCD models = OR of all `RCD_CONN(n)`) |
 | 2 | 0x0004 | GND_FAULT | Ground fault present |
+| 8+n | 1<<(8+n) | RCD_CONN(n) | Per-connector RCD tripped on connector n (0..3) — set only on per-socket-RCD models (`XCOM_TPER_RCD_PERSOCKET`), in addition to the aggregate `RCD` (bit 1) |
 | 16+n | 1<<(16+n) | GUN(n) | Gun connected on connector n (0..3) |
 
 **Enumerated fields:**
@@ -550,3 +552,4 @@ Example: GSM + WiFi only unit → `comm_modes = 0x05` (XCOM_COMM_WIFI | XCOM_COM
 | 2 (lib v2.10.0) | TEST_MODE EEPROM_STATUS (0x48) — EEPROM connected/health check (empty req → `u8 connected, u8 error_code`; `error_code` 0xFF = not present / feature off), mirroring METER_STATUS (0x46) for the EEPROM peripheral. Additive; wire version stays 2 (§7.8) |
 | 2 (lib v2.11.0) | TEST_MODE DISPLAY_BACKLIGHT (0x49) — toggle DWIN/TFT display backlight (req `u8 on`, ACK only) for a manual display check; new capability bit `XCOM_TPER_DISPLAY` (bit 14, mask 0x4000) in `xcom_test_caps_t.peripherals`. Bit 14 is outside the `result[14]` selftest array (count stays 14), so SELFTEST_RUN (0x50) is unchanged. Additive; wire version stays 2 (§7.8). **Superseded by v2.12.0 — never shipped.** |
 | 2 (lib v2.12.0) | TEST_MODE DISPLAY_BACKLIGHT (0x49) **replaced** by DISPLAY_STATUS (0x49) — DWIN/HMI display connected/health probe (empty req → `u8 connected, u8 error_code`; `error_code` 0xFF = not present / feature off), identical layout to METER_STATUS (0x46) / EEPROM_STATUS (0x48). Capability bit `XCOM_TPER_DISPLAY` (bit 14, mask 0x4000) unchanged. Additive; wire version stays 2 (§7.8) |
+| 2 (lib v2.13.0) | TEST_MODE per-connector RCD: new capability bit `XCOM_TPER_RCD_PERSOCKET` (**bit 15**, mask 0x8000) in `xcom_test_caps_t.peripherals` flags per-socket-RCD models; new DIN macro `XCOM_TDIN_RCD_CONN(conn)` (**bits 8..11**, conn 0..3) carries each socket's live RCD in `xcom_test_dinputs_t.inputs`. The aggregate `XCOM_TDIN_RCD` (bit 1) is retained as the OR of all sockets. Both new bits are outside the `result[14]` selftest array, so SELFTEST_RUN (0x50) is unchanged. Additive; wire version stays 2 (§7.8) |
