@@ -83,7 +83,27 @@ class XcomChargingCtrlCmd(IntEnum):
     HEARTBEAT              = 0x0A  # v2
 
 
+#: Sentinel connector_id for the charger-wide error readout (v2.14.0).
+#: The three error-readout CHARGER_INFO commands
+#: (CHARGER_DECODED_ERROR_CODE_STR 0x08, CHARGER_ERROR_CODE 0x0C,
+#: CHARGER_HIGHEST_PRIORITY_ERROR_CODE 0x11) are connector-indexed via the
+#: frame ``connector_id`` field: connector_id 0 = charger-wide (legacy /
+#: backward-compatible — OR of all connectors); connector_id 1..N = that
+#: 1-based OCPP connector's error. Wire payloads and VENDOR_CODE_* values
+#: are unchanged. PC tools select a connector simply by setting the frame's
+#: ``connector_id`` when sending these reads.
+XCOM_CONNECTOR_ID_CHARGER_WIDE = 0
+
+
 class XcomChargerInfoCmd(IntEnum):
+    """CHARGER_INFO (device_type 0x02) command IDs.
+
+    Connector-indexed error readout (v2.14.0, additive/backward-compatible):
+    CHARGER_DECODED_ERROR_CODE_STR (0x08), CHARGER_ERROR_CODE (0x0C) and
+    CHARGER_HIGHEST_PRIORITY_ERROR_CODE (0x11) honour the frame ``connector_id``:
+    0 = charger-wide (legacy), 1..N = the 1-based OCPP connector. See
+    ``XCOM_CONNECTOR_ID_CHARGER_WIDE``.
+    """
     CHARGER_SET_WIFI_AP_SSID      = 0x00
     CHARGER_SET_WIFI_AP_PASSWORD  = 0x01
     CHARGER_SET_WIFI_AP_IP        = 0x02

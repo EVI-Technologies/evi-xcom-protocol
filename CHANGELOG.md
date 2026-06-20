@@ -1,5 +1,31 @@
 # Changelog
 
+## [2.14.0] — 2026-06-20
+
+### Added
+- **Connector-indexed error readout** (additive, backward-compatible). The three CHARGER_INFO
+  (device_type `0x02`) error-readout commands the OCPP card polls now honour the frame
+  `connector_id` field — **no new command IDs, no new structs, no payload-layout change**:
+  - `XCOM_CMD_INFO_CHARGER_DECODED_ERROR_CODE_STR` (**0x08**) — decoded vendor-code ASCII string.
+  - `XCOM_CMD_INFO_CHARGER_ERROR_CODE` (**0x0C**) — raw `u32` error bitmask (LE).
+  - `XCOM_CMD_INFO_CHARGER_HIGHEST_PRIORITY_ERROR_CODE` (**0x11**) — highest-priority `ErrorFlag_t`
+    (single-bit `u32`, LE).
+- `connector_id` semantics (same convention as SESSION_HISTORY 0x0A): `connector_id = 0` →
+  **charger-wide** (legacy / backward-compatible, `ErrorManager_GetChargerWide()`); `connector_id =
+  1..N` → that **1-based OCPP** connector, mapping to `ErrorManager_GetConnectorFaults(connector_id-1)`
+  on the control card. Out-of-range clamps to charger-wide.
+- Python: `XCOM_CONNECTOR_ID_CHARGER_WIDE = 0` sentinel + docstring on `XcomChargerInfoCmd`.
+
+### Notes
+- **Backward-compatible at the wire level**; wire version stays **2** (`XCOM_PROTOCOL_VERSION`).
+  Existing readers send `connector_id = 0` and get the unchanged charger-wide result.
+- The **`VENDOR_CODE_*` / UR12-16 numeric values and all response payload formats are unchanged** —
+  only *which* connector's fault is decoded changes.
+- Step **1 of 3** for per-connector OCPP error reporting (control-card emit + ESP8266
+  `StatusNotification` per `connectorId` follow separately).
+- C: Doxygen on the three enum values in `c/xcom_protocol.h`. Python: sentinel + docstring in
+  `python/xcom_frame.py`. Spec: new §7.9 + §6 table rows + §12 change-log row.
+
 ## [2.13.0] — 2026-06-20
 
 ### Added

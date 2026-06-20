@@ -295,15 +295,35 @@ typedef enum
     XCOM_CMD_INFO_TXNDETAIL_INFO               = 0x05, /**< Session energy and duration */
     XCOM_CMD_INFO_GUN_CONNECTED_STATUS         = 0x06, /**< Connector insertion status */
     XCOM_CMD_INFO_ACPILOT_PWM_STATUS           = 0x07, /**< CP pilot PWM duty cycle */
+    /**< Decoded vendor error string (UR12-16 family). Connector-indexed via the
+     *   frame connector_id field (v2.14.0): connector_id 0 = charger-wide (the
+     *   OR of all connectors — legacy/backward-compatible behaviour); 1..N =
+     *   that 1-based OCPP connector's decoded error (control card maps to the
+     *   0-based ErrorManager_GetConnectorFaults(connector_id-1)). Response
+     *   payload (vendor code ASCII string) and VENDOR_CODE_* values unchanged. */
     XCOM_CMD_INFO_CHARGER_DECODED_ERROR_CODE_STR = 0x08,
     XCOM_CMD_INFO_REGISTERED_IDTAG_DETAILS     = 0x09,
     XCOM_CMD_INFO_SESSION_HISTORY              = 0x0A,
     XCOM_CMD_INFO_ERROR_HISTORY                = 0x0B,
+    /**< Raw 32-bit error bitmask (LE). Connector-indexed via the frame
+     *   connector_id field (v2.14.0): connector_id 0 = charger-wide bitmask
+     *   (ErrorManager_GetChargerWide() — legacy/backward-compatible); 1..N =
+     *   that 1-based OCPP connector's bitmask
+     *   (ErrorManager_GetConnectorFaults(connector_id-1)). Payload layout
+     *   (4-byte LE bitmask) unchanged. */
     XCOM_CMD_INFO_CHARGER_ERROR_CODE           = 0x0C,
     XCOM_CMD_INFO_AMBIENT_TEMPERATURE          = 0x0D,
     XCOM_CMD_INFO_SUPPORTED_INTERFACES         = 0x0E,
     XCOM_CMD_INFO_CONNECTOR_TYPE               = 0x0F,
     XCOM_CMD_INFO_NO_OF_CONNECTORS             = 0x10,
+    /**< Highest-priority ErrorFlag_t (single-bit 32-bit value, LE).
+     *   Connector-indexed via the frame connector_id field (v2.14.0):
+     *   connector_id 0 = charger-wide highest-priority flag
+     *   (ErrorManager_GetHighestPriorityFlag(ErrorManager_GetChargerWide()) —
+     *   legacy/backward-compatible); 1..N = that 1-based OCPP connector's
+     *   highest-priority flag
+     *   (...GetHighestPriorityFlag(ErrorManager_GetConnectorFaults(connector_id-1))).
+     *   Payload layout (4-byte LE flag) unchanged. */
     XCOM_CMD_INFO_CHARGER_HIGHEST_PRIORITY_ERROR_CODE = 0x11,
     XCOM_CMD_INFO_CHARGEBOX_SERIAL_NUMBER      = 0x12,
     XCOM_CMD_INFO_CHARGEPOINT_MODEL            = 0x13,

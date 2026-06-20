@@ -1,6 +1,6 @@
 # XCOM Binary Protocol Specification
 
-Version: **2** (`XCOM_PROTOCOL_VERSION = 2`) · library **v2.13.0**  
+Version: **2** (`XCOM_PROTOCOL_VERSION = 2`) · library **v2.14.0**  
 Last updated: 2026-06-13
 
 ---
@@ -106,6 +106,9 @@ Both little-endian bytes of the CRC are appended LSB-first.
 |----|------|-----------|
 | 0x03 | CHARGER_INFO | Charger→OCPP |
 | 0x06 | GUN_CONNECTED_STATUS | Charger→OCPP |
+| **0x08** | **CHARGER_DECODED_ERROR_CODE_STR** | **OCPP→Charger; connector-indexed (v2.14.0), see §7.9** |
+| **0x0C** | **CHARGER_ERROR_CODE** | **OCPP→Charger; connector-indexed (v2.14.0), see §7.9** |
+| **0x11** | **CHARGER_HIGHEST_PRIORITY_ERROR_CODE** | **OCPP→Charger; connector-indexed (v2.14.0), see §7.9** |
 | 0x19 | CHARGER_FIRMWARE_VERSION | Charger→OCPP |
 | **0x21** | **CHARGER_IDENTITY** | **Charger→OCPP (v2, on boot)** |
 
@@ -472,6 +475,40 @@ passes. The PC tool may instead **orchestrate** the sequence itself by calling t
 
 ---
 
+### 7.9 Connector-indexed error readout (CHARGER_INFO; v2.14.0)
+
+The three CHARGER_INFO (device_type `0x02`) **error-readout** commands the OCPP card polls are
+**connector-indexed** via the frame `connector_id` field (no new command IDs, no new structs — additive,
+fully backward-compatible). This lets the ESP8266 emit OCPP `StatusNotification` per `connectorId`.
+
+| ID | Name | Request | Response payload (unchanged) |
+|----|------|---------|------------------------------|
+| 0x08 | CHARGER_DECODED_ERROR_CODE_STR | empty | ASCII vendor-code string (UR12-16 family), null-terminated; `dlc` = strlen+1 |
+| 0x0C | CHARGER_ERROR_CODE | empty | `u32` raw error bitmask (little-endian, 4 B) |
+| 0x11 | CHARGER_HIGHEST_PRIORITY_ERROR_CODE | empty | `u32` single highest-priority `ErrorFlag_t` (little-endian, 4 B) |
+
+**`connector_id` semantics** (same convention as the per-connector SESSION_HISTORY 0x0A and meter reads):
+
+| `connector_id` | Meaning | Control-card source |
+|----------------|---------|---------------------|
+| `0` | **Charger-wide** (legacy / backward-compatible). The OR of all connectors. | `ErrorManager_GetChargerWide()` |
+| `1 .. N` | The **1-based OCPP** connector's error. | `ErrorManager_GetConnectorFaults(connector_id - 1)` (0-based) |
+
+Notes:
+- **Backward compatible:** existing readers that send `connector_id = 0` (the default) get the unchanged
+  charger-wide result. Only callers that set `connector_id ≥ 1` see per-connector behaviour.
+- The **wire payload formats and all `VENDOR_CODE_*` / UR12-16 numeric values are unchanged** — only the
+  *selection* of which connector's fault is decoded changes. The decoded string for connector `c` is
+  `ErrorManager_DecodeErrorCode(ErrorManager_GetConnectorFaults(c-1), …)`; the highest-priority flag is
+  `ErrorManager_GetHighestPriorityFlag(ErrorManager_GetConnectorFaults(c-1))`.
+- Out-of-range `connector_id` (> N) is clamped to charger-wide by the control card (matches the existing
+  SESSION_HISTORY clamp).
+- This is **step 1 of 3** for per-connector OCPP error reporting: (1) this protocol contract, (2)
+  control-card `xcom_handler.c` honouring `frame->connector_id` on these three commands, (3) ESP8266
+  consuming per connector for `StatusNotification`.
+
+---
+
 ## 8. Retry and Timeout Policy
 
 | Command | Direction | Retries | Per-attempt timeout (ms) | Total budget (ms) |
@@ -553,3 +590,4 @@ Example: GSM + WiFi only unit → `comm_modes = 0x05` (XCOM_COMM_WIFI | XCOM_COM
 | 2 (lib v2.11.0) | TEST_MODE DISPLAY_BACKLIGHT (0x49) — toggle DWIN/TFT display backlight (req `u8 on`, ACK only) for a manual display check; new capability bit `XCOM_TPER_DISPLAY` (bit 14, mask 0x4000) in `xcom_test_caps_t.peripherals`. Bit 14 is outside the `result[14]` selftest array (count stays 14), so SELFTEST_RUN (0x50) is unchanged. Additive; wire version stays 2 (§7.8). **Superseded by v2.12.0 — never shipped.** |
 | 2 (lib v2.12.0) | TEST_MODE DISPLAY_BACKLIGHT (0x49) **replaced** by DISPLAY_STATUS (0x49) — DWIN/HMI display connected/health probe (empty req → `u8 connected, u8 error_code`; `error_code` 0xFF = not present / feature off), identical layout to METER_STATUS (0x46) / EEPROM_STATUS (0x48). Capability bit `XCOM_TPER_DISPLAY` (bit 14, mask 0x4000) unchanged. Additive; wire version stays 2 (§7.8) |
 | 2 (lib v2.13.0) | TEST_MODE per-connector RCD: new capability bit `XCOM_TPER_RCD_PERSOCKET` (**bit 15**, mask 0x8000) in `xcom_test_caps_t.peripherals` flags per-socket-RCD models; new DIN macro `XCOM_TDIN_RCD_CONN(conn)` (**bits 8..11**, conn 0..3) carries each socket's live RCD in `xcom_test_dinputs_t.inputs`. The aggregate `XCOM_TDIN_RCD` (bit 1) is retained as the OR of all sockets. Both new bits are outside the `result[14]` selftest array, so SELFTEST_RUN (0x50) is unchanged. Additive; wire version stays 2 (§7.8) |
+| 2 (lib v2.14.0) | **Connector-indexed error readout**: the three CHARGER_INFO error commands — CHARGER_DECODED_ERROR_CODE_STR (0x08), CHARGER_ERROR_CODE (0x0C), CHARGER_HIGHEST_PRIORITY_ERROR_CODE (0x11) — now honour the frame `connector_id` field: `0` = charger-wide (legacy/backward-compatible, `ErrorManager_GetChargerWide()`), `1..N` = that 1-based OCPP connector (`ErrorManager_GetConnectorFaults(connector_id-1)`). No new command IDs/structs; wire payloads and `VENDOR_CODE_*`/UR12-16 values unchanged. Enables per-connectorId OCPP StatusNotification. Additive; wire version stays 2 (§7.9) |
